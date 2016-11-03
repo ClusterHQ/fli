@@ -25,23 +25,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClusterHQ/go/dl/blobdiffer"
-	"github.com/ClusterHQ/go/dl/datalayer"
-	"github.com/ClusterHQ/go/dl/encdec"
-	"github.com/ClusterHQ/go/dl/executor"
-	"github.com/ClusterHQ/go/dl/filediffer/variableblk"
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/zfs"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/mdsimpls/sqlite3storage"
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
-	"github.com/ClusterHQ/go/securefilepath"
+	"github.com/ClusterHQ/fli/dl/blobdiffer"
+	"github.com/ClusterHQ/fli/dl/datalayer"
+	"github.com/ClusterHQ/fli/dl/encdec"
+	"github.com/ClusterHQ/fli/dl/executor"
+	"github.com/ClusterHQ/fli/dl/filediffer/variableblk"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/zfs"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/mdsimpls/sqlite3storage"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/securefilepath"
+	"golang.org/x/net/context"
 )
 
 //go:generate go run ../cmd/fligen/main.go -yaml cmd.yml -output cmds_gen.go -package fli
@@ -58,6 +59,15 @@ const (
 	megabyteSz = 1024 * kilobyteSz
 	gigabyteSz = 1024 * megabyteSz
 	terabyteSz = 1024 * gigabyteSz
+
+	// CommandCtxKeys
+	urlKey         cmdCtxKey = "url"
+	tokenKey       cmdCtxKey = "token"
+	attributesKey  cmdCtxKey = "attributes"
+	descriptionKey cmdCtxKey = "description"
+	zpoolKey       cmdCtxKey = "zpool"
+	branchKey      cmdCtxKey = "branch"
+	nameKey        cmdCtxKey = "name"
 )
 
 type (
@@ -84,6 +94,8 @@ type (
 		ed    encdec.Factory
 		hf    dlhash.Factory
 	}
+
+	cmdCtxKey string
 )
 
 var (
@@ -519,11 +531,11 @@ func displayObjects(vsObj volumesetObjects, full bool) []Result {
 func handleZFSErr(err error) error {
 	switch err.(type) {
 	case *zfs.ErrZfsNotFound:
-		return errors.New("Missing ZFS kernel module\nVisit http://flockerhub.com/doc for instructions to install ZFS")
+		return errors.New("Missing ZFS kernel module\nVisit https://clusterhq.com/ for instructions to install ZFS")
 	case *zfs.ErrZfsUtilsNotFound:
-		return errors.New("Missing ZFS utilities\nVisit http://flockerhub.com/doc for instructions to install ZFS utilities")
+		return errors.New("Missing ZFS utilities\nVisit https://clusterhq.com/ for instructions to install ZFS utilities")
 	case *zfs.ErrZpoolNotFound:
-		return errors.Errorf("%s\nVisit http://flockerhub.com/doc for instructions to create ZPOOL", err.Error())
+		return errors.Errorf("%s\nVisit https://clusterhq.com/ for instructions to create ZPOOL", err.Error())
 
 	}
 
@@ -578,7 +590,15 @@ func Execute() {
 		filepath.Join(getHomeDir(), configDir, mdsFileInitial),
 	)
 
-	cmd := newFliCmd(handler)
+	url := flockerHubURL
+	if params.FlockerHubURL != "" {
+		url = params.FlockerHubURL
+	}
+
+	ctx := context.WithValue(context.Background(), urlKey, url)
+	ctx = context.WithValue(ctx, tokenKey, params.AuthTokenFile)
+
+	cmd := newFliCmd(ctx, handler)
 
 	cmd.SetUsageTemplate(usageTemplate)
 	cmd.SetOutput(os.Stdout)

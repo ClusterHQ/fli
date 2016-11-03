@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ClusterHQ/go/dp/dataplane"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dp/dataplane"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 // BlobAccepter is an entity which can negotiate about which blob diffs it would like to receive.

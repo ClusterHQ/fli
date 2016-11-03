@@ -17,8 +17,8 @@
 package bush
 
 import (
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 type (

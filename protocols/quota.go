@@ -16,7 +16,7 @@
 
 package protocols
 
-import "github.com/ClusterHQ/go/meta/volumeset"
+import "github.com/ClusterHQ/fli/meta/volumeset"
 
 const (
 	// HTTPPathUsage quries the usage given a list of volumesets.

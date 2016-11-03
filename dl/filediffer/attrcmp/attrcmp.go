@@ -27,9 +27,9 @@ import (
 
 	"github.com/kuba--/xattr"
 
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/errors"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/errors"
 )
 
 //Returns Xattrs of a file as a map

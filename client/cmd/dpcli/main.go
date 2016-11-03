@@ -21,7 +21,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/ClusterHQ/go/client/cli"
+	"github.com/ClusterHQ/fli/client/cli"
 )
 
 func main() {

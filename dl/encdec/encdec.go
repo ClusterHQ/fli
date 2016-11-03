@@ -19,7 +19,7 @@ package encdec
 import (
 	"io"
 
-	"github.com/ClusterHQ/go/dl/record"
+	"github.com/ClusterHQ/fli/dl/record"
 )
 
 type (

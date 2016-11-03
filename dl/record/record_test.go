@@ -20,11 +20,11 @@ import (
 	"testing"
 	"time"
 
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/hash/adler32"
-	"github.com/ClusterHQ/go/dl/hash/md5"
-	dlsha "github.com/ClusterHQ/go/dl/hash/sha256"
-	"github.com/ClusterHQ/go/dl/record"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/hash/adler32"
+	"github.com/ClusterHQ/fli/dl/hash/md5"
+	dlsha "github.com/ClusterHQ/fli/dl/hash/sha256"
+	"github.com/ClusterHQ/fli/dl/record"
 	"github.com/stretchr/testify/require"
 )
 

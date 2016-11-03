@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"encoding/binary"
-	"github.com/ClusterHQ/go/dl/encdec"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/errors"
+	"github.com/ClusterHQ/fli/dl/encdec"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/errors"
 )
 
 type (

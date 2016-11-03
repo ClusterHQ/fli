@@ -20,9 +20,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ClusterHQ/go/dl/executor"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/dl/testutils"
+	"github.com/ClusterHQ/fli/dl/executor"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/dl/testutils"
 	"github.com/stretchr/testify/require"
 )
 

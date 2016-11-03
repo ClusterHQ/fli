@@ -26,9 +26,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 // getHomeDir gets the full path of the current user's home dir, if unable to fetch the user home dir path then

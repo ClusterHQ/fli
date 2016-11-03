@@ -27,10 +27,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/util"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/util"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/pborman/uuid"
 )
 

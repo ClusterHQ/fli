@@ -30,7 +30,7 @@ import (
 
 	"github.com/kuba--/xattr"
 
-	"github.com/ClusterHQ/go/dl/record"
+	"github.com/ClusterHQ/fli/dl/record"
 )
 
 /* delta generation takes an origin snapshot and a target snapshot that are

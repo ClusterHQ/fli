@@ -23,21 +23,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	dlbin "github.com/ClusterHQ/go/dl/encdec/binary"
-	dladler32 "github.com/ClusterHQ/go/dl/hash/adler32"
-	"github.com/ClusterHQ/go/dp/dataplane"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/dp/sync"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/mdsimpls/restfulstorage"
-	"github.com/ClusterHQ/go/mdsimpls/sqlite3storage"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
-	"github.com/ClusterHQ/go/protocols"
-	"github.com/ClusterHQ/go/securefilepath"
-	"github.com/ClusterHQ/go/vh/cauthn"
+	dlbin "github.com/ClusterHQ/fli/dl/encdec/binary"
+	dladler32 "github.com/ClusterHQ/fli/dl/hash/adler32"
+	"github.com/ClusterHQ/fli/dp/dataplane"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/dp/sync"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/mdsimpls/restfulstorage"
+	"github.com/ClusterHQ/fli/mdsimpls/sqlite3storage"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/protocols"
+	"github.com/ClusterHQ/fli/securefilepath"
+	"github.com/ClusterHQ/fli/vh/cauthn"
 )
 
 // Handler ...
@@ -1150,7 +1150,7 @@ func (c *Handler) Setup(zpool string, force bool, args []string) (CmdOutput, err
 }
 
 // Config ...
-func (c *Handler) Config(url string, token string, args []string) (CmdOutput, error) {
+func (c *Handler) Config(url string, token string, offline bool, args []string) (CmdOutput, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) > 0 {
@@ -1165,10 +1165,9 @@ func (c *Handler) Config(url string, token string, args []string) (CmdOutput, er
 
 		cmdOut.Op = append(cmdOut.Op, res)
 	} else {
-
 		if url != "" {
 			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-				url = "http://" + url
+				url = "https://" + url
 			}
 
 			c.CfgParams.FlockerHubURL = url
@@ -1190,9 +1189,41 @@ func (c *Handler) Config(url string, token string, args []string) (CmdOutput, er
 		if err := cfg.UpdateConfig(c.CfgParams); err != nil {
 			return CmdOutput{}, err
 		}
+
+		if !offline {
+			if c.CfgParams.FlockerHubURL == "" {
+				return cmdOut, errors.New(`FlockerHub URL is not set.
+To skip URL validation use --offline option`)
+			}
+
+			if c.CfgParams.AuthTokenFile == "" {
+				return cmdOut, errors.New(`Authentication token file is not set.
+To skip URL validation use --offline option`)
+			}
+
+			fhMds, err := c.getRestfulMds(c.CfgParams.FlockerHubURL, c.CfgParams.AuthTokenFile)
+			if err != nil {
+				return cmdOut, err
+			}
+
+			_, err = fhMds.GetVolumeSets(volumeset.Query{})
+			if err != nil {
+				return cmdOut, err
+			}
+		}
 	}
 
 	return cmdOut, nil
+}
+
+// Version ...
+func (c *Handler) Version(args []string) (CmdOutput, error) {
+	versionStr := "fli version " + version
+	if gitHash != "" && len(gitHash) == 40 { // git hash should be 40 char long
+		versionStr += ", build " + gitHash[:7]
+	}
+
+	return CmdOutput{Op: []Result{{Str: versionStr}}}, nil
 }
 
 // NewHandler ...

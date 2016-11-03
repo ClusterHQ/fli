@@ -19,7 +19,7 @@ package errors_test
 import (
 	"testing"
 
-	"github.com/ClusterHQ/go/errors"
+	"github.com/ClusterHQ/fli/errors"
 	"github.com/stretchr/testify/require"
 )
 

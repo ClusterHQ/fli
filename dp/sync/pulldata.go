@@ -19,10 +19,10 @@ package sync
 import (
 	"log"
 
-	"github.com/ClusterHQ/go/dp/dataplane"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dp/dataplane"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 // BlobSpewer is an entity which can negotiate about which blob diffs it is willing to transmit.

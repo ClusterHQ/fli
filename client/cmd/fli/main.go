@@ -16,7 +16,7 @@
 
 package main
 
-import "github.com/ClusterHQ/go/client/fli"
+import "github.com/ClusterHQ/fli/client/fli"
 
 func main() {
 	fli.Execute()

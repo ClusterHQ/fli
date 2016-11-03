@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ClusterHQ/go/dl/encdec"
-	"github.com/ClusterHQ/go/dl/record"
+	"github.com/ClusterHQ/fli/dl/encdec"
+	"github.com/ClusterHQ/fli/dl/record"
 )
 
 type (

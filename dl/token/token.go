@@ -22,8 +22,8 @@ import (
 	"encoding/gob"
 	"time"
 
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 type (

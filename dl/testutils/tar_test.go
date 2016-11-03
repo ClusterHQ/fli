@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ClusterHQ/go/dl/testutils"
+	"github.com/ClusterHQ/fli/dl/testutils"
 )
 
 func TestTar(t *testing.T) {

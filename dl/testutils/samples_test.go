@@ -22,9 +22,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ClusterHQ/go/dl/executor"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/dl/testutils"
+	"github.com/ClusterHQ/fli/dl/executor"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/dl/testutils"
 )
 
 // How to use Snapshot Test Framework
@@ -37,10 +37,10 @@ import (
 // test and validate the results.
 //
 // Where do the sample data-set exists?
-// The sample data-set is kept in the github.com/ClusterHQ/go/datalayer/samples directory. Each sample data is
+// The sample data-set is kept in the github.com/ClusterHQ/fli/datalayer/samples directory. Each sample data is
 // identified by the name of the file (without the extension). This sample data should be tar'ed and gzip'ed with ".tgz"
 // extension.
-// For example, in github.com/ClusterHQ/go/datalayer/samples/sample1.tgz the sample data is "sample1" and the framework
+// For example, in github.com/ClusterHQ/fli/datalayer/samples/sample1.tgz the sample data is "sample1" and the framework
 // will extract the contents by un-gzip'ing and un-tar'ing the file.
 //
 // How to add a sample data?
@@ -58,7 +58,7 @@ import (
 
 // snapA and snapB are two snapshot from the same lineage where snapA is a source snapshot and snapB is the destination
 // snapshot. From a unit test perspective each snapshot is just a directory.
-// Once the sample## is complete simply tar and gzip the file to github.com/ClusterHQ/go/datalayer/samples/sample##.tgz
+// Once the sample## is complete simply tar and gzip the file to github.com/ClusterHQ/fli/datalayer/samples/sample##.tgz
 // (NOTE: Remember to check-in the new file into your git.)
 //
 // How to test your new sample data?
@@ -79,7 +79,7 @@ type sampleTestData struct {
 }
 
 // Global Const
-// IMPORTANT: Don't change testDataDir & samples unless the ClusterHQ/go/datalayer/samples changes.
+// IMPORTANT: Don't change testDataDir & samples unless the ClusterHQ/fli/datalayer/samples changes.
 const testDataDir string = "testdata" // all the test data needed to validate unit tests
 
 // Global
@@ -109,7 +109,7 @@ func (s *sampleTestData) sampleTestShutdown() {
 
 // TestSamples validates the tests for a defined sample test cases. For each sample it applies rec[] on snapA that
 // creates snapB. It compares the actual snapB with the expected snapB that validates the test.
-// NOTE: Look at README.md in ClusterHQ/go/datalayer/samples/README.md
+// NOTE: Look at README.md in ClusterHQ/fli/datalayer/samples/README.md
 func TestSamples(t *testing.T) {
 	fmt.Println("*** Starting Tests")
 	for _, s := range samples {
@@ -145,7 +145,7 @@ func TestSamples(t *testing.T) {
 	fmt.Println("*** Finished Tests")
 }
 
-// IMPORTANT: DO NOT CHANGE THIS - IT IS COPIED FROM ClusterHQ/go/datalayer/samples/*.tgz FILES. //
+// IMPORTANT: DO NOT CHANGE THIS - IT IS COPIED FROM ClusterHQ/fli/datalayer/samples/*.tgz FILES. //
 
 // For samples/sample1.tgz //////////////////////////
 

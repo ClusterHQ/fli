@@ -24,12 +24,12 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
-	"github.com/ClusterHQ/go/dl/delta"
-	"github.com/ClusterHQ/go/dl/filediffer/attrcmp"
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/errors"
+	"github.com/ClusterHQ/fli/dl/datalayer"
+	"github.com/ClusterHQ/fli/dl/delta"
+	"github.com/ClusterHQ/fli/dl/filediffer/attrcmp"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/errors"
 )
 
 type (

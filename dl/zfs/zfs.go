@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
-	"github.com/ClusterHQ/go/securefilepath"
+	"github.com/ClusterHQ/fli/dl/datalayer"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/securefilepath"
 	uuidPkg "github.com/pborman/uuid"
 )
 

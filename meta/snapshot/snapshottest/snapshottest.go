@@ -20,9 +20,9 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 // GetRandomSnapshot ..

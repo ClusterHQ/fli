@@ -20,7 +20,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 func isID(s string) (bool, error) {

@@ -20,15 +20,15 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/util"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dl/datalayer"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/util"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 type (
