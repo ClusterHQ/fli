@@ -17,10 +17,10 @@
 package token_test
 
 import (
-	"github.com/ClusterHQ/go/dl/token"
-	"github.com/ClusterHQ/go/meta/blob"
+	"github.com/ClusterHQ/fli/dl/token"
+	"github.com/ClusterHQ/fli/meta/blob"
 
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 	"reflect"
 	"testing"
 	"time"

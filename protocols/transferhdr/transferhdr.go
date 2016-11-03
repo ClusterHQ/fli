@@ -17,8 +17,8 @@
 package transferhdr
 
 import (
-	"github.com/ClusterHQ/go/dl/encdec"
-	dlhash "github.com/ClusterHQ/go/dl/hash"
+	"github.com/ClusterHQ/fli/dl/encdec"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
 )
 
 type (

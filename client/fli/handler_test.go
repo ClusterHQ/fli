@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ClusterHQ/go/client/fli"
-	"github.com/ClusterHQ/go/dl/testutils"
+	"github.com/ClusterHQ/fli/client/fli"
+	"github.com/ClusterHQ/fli/dl/testutils"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -122,24 +122,24 @@ func (s *HandlerSuite) TestConfig() {
 	fp.Close()
 
 	// Update tokenfile in configuration
-	_, err = s.handler.Config("", tokenfile, []string{})
+	_, err = s.handler.Config("", tokenfile, true, []string{})
 	s.Require().NoError(err, "Config update failed")
 
 	// Tokenfile does not exists
 	os.RemoveAll(tokenfile)
-	_, err = s.handler.Config("", tokenfile, []string{})
+	_, err = s.handler.Config("", tokenfile, true, []string{})
 	s.Require().Error(err, "Expected an error")
 
 	// Tokenfile is not an absolute path
-	_, err = s.handler.Config("", "token", []string{})
+	_, err = s.handler.Config("", "token", true, []string{})
 	s.Require().Error(err, "Expected an error")
 
 	// Configure URL
-	_, err = s.handler.Config("localhost", "", []string{})
+	_, err = s.handler.Config("localhost", "", true, []string{})
 	s.Require().NoError(err, "Failed to set flockerhub URL")
 
 	// Without args
-	_, err = s.handler.Config("", "", []string{})
+	_, err = s.handler.Config("", "", true, []string{})
 	s.Require().NoError(err, "Failed to just show configurations")
 }
 

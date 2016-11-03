@@ -15,7 +15,7 @@
  */
 
 /*
- * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/go/client/cmd/cmdgen
+ * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/fli/client/cmd/cmdgen
  * THIS FILE SHOULD NOT BE EDITED BY HAND
  */
 

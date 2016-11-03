@@ -19,7 +19,7 @@ package branch_test
 import (
 	"testing"
 
-	"github.com/ClusterHQ/go/meta/branch"
+	"github.com/ClusterHQ/fli/meta/branch"
 	"github.com/stretchr/testify/assert"
 )
 

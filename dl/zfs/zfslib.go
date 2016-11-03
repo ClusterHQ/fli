@@ -33,7 +33,7 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
+	"github.com/ClusterHQ/fli/dl/datalayer"
 )
 
 // Init the libzfs_core. This should be called before using any

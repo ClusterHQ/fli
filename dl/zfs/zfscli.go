@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
+	"github.com/ClusterHQ/fli/dl/datalayer"
 )
 
 // ZFS backend shell command interface implementation

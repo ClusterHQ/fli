@@ -21,14 +21,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/bush"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/bush"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 type (

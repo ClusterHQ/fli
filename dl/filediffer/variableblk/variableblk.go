@@ -23,9 +23,9 @@ package variableblk
 import (
 	"io"
 
-	"github.com/ClusterHQ/go/dl/blobdiffer"
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/record"
+	"github.com/ClusterHQ/fli/dl/blobdiffer"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/record"
 )
 
 // Factory is a helper for creating a new file differ factory

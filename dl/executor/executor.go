@@ -18,8 +18,8 @@ package executor
 
 import (
 	"fmt"
-	"github.com/ClusterHQ/go/dl/record"
-	"github.com/ClusterHQ/go/errors"
+	"github.com/ClusterHQ/fli/dl/record"
+	"github.com/ClusterHQ/fli/errors"
 )
 
 // Executor is an interface implemented by an object that executes the []records.

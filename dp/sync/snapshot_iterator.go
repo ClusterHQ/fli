@@ -20,10 +20,10 @@ import (
 	"log"
 	"sort"
 
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 type (

@@ -20,7 +20,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ClusterHQ/go/dl/testutils"
+	"github.com/ClusterHQ/fli/dl/testutils"
 )
 
 // TestSuccessCompare validates if the CompareTree can compare 2 similar directories and validate the result.

@@ -20,7 +20,7 @@ import (
 	"crypto/sha256"
 	"hash"
 
-	dlhash "github.com/ClusterHQ/go/dl/hash"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
 )
 
 type (

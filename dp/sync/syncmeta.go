@@ -19,11 +19,11 @@ package sync
 import (
 	"log"
 
-	"github.com/ClusterHQ/go/dp/metastore"
-	meta "github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	meta "github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 // MetaConflicts - list of conflicts for vs, snaps, branches.

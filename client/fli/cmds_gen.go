@@ -15,7 +15,7 @@
  */
 
 /*
- * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/go/client/cmd/cmdgen
+ * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/fli/client/cmd/cmdgen
  * THIS FILE SHOULD NOT BE EDITED BY HAND
  */
 
@@ -31,12 +31,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ClusterHQ/go/log"
+	"github.com/ClusterHQ/fli/log"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/context"
 )
-
-// GitHash ...
-var gitHash = ""
 
 func getMultiUseLine(sb string, mu []string) string {
 	var o = sb + " ;"
@@ -159,7 +157,7 @@ func (c sortedCommands) Len() int           { return len(c) }
 func (c sortedCommands) Swap(i, j int)      { c[i], c[j] = c[j], c[i] }
 func (c sortedCommands) Less(i, j int) bool { return c[i].Name() < c[j].Name() }
 
-func newFliCmd(h CommandHandler) *cobra.Command {
+func newFliCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use:   "fli",
 		Short: "fli",
@@ -177,32 +175,20 @@ fli synchronizes metadata with FlockerHub and can push and pull snapshots of vol
 	}
 	complCmd.Flags().StringVarP(&outputF, "output", "o", "", "Generates bash completions file for fli")
 
-	var versionCmd = &cobra.Command{
-		Use:   "version",
-		Short: "Print the version information",
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Print("fli version 0.1.0")
-			if gitHash != "" {
-				cmd.Print(", build " + gitHash[:7])
-			}
-			cmd.Println()
-		},
-	}
-
 	sortedCmds := sortedCommands{
-		newFliCloneCmd(h),
-		newFliConfigCmd(h),
-		newFliCreateCmd(h),
-		newFliInitCmd(h),
-		newFliListCmd(h),
-		newFliPullCmd(h),
-		newFliPushCmd(h),
-		newFliRemoveCmd(h),
-		newFliSetupCmd(h),
-		newFliSnapshotCmd(h),
-		newFliSyncCmd(h),
-		newFliUpdateCmd(h),
-		versionCmd,
+		newCloneCmd(ctx, h),
+		newConfigCmd(ctx, h),
+		newCreateCmd(ctx, h),
+		newInitCmd(ctx, h),
+		newListCmd(ctx, h),
+		newPullCmd(ctx, h),
+		newPushCmd(ctx, h),
+		newRemoveCmd(ctx, h),
+		newSetupCmd(ctx, h),
+		newSnapshotCmd(ctx, h),
+		newSyncCmd(ctx, h),
+		newUpdateCmd(ctx, h),
+		newVersionCmd(ctx, h),
 		complCmd,
 	}
 
@@ -214,7 +200,7 @@ fli synchronizes metadata with FlockerHub and can push and pull snapshots of vol
 	return cmd
 }
 
-func newFliCloneCmd(h CommandHandler) *cobra.Command {
+func newCloneCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("clone", []string{
 			"[OPTIONS] SNAPSHOT [VOLUME-NAME]",
@@ -273,13 +259,27 @@ If more than one matching result for the snapshot is found then it is treated as
 		},
 	}
 
-	cmd.Flags().StringP("attributes", "a", "", "A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	attributesDefVal := ""
+	if v := ctx.Value(attributesKey); v != nil {
+		attributesDefVal = ctx.Value(attributesKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"attributes",
+		"a",
+		attributesDefVal,
+		"A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliConfigCmd(h CommandHandler) *cobra.Command {
+func newConfigCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("config", []string{
 			"[OPTIONS]",
@@ -287,9 +287,10 @@ func newFliConfigCmd(h CommandHandler) *cobra.Command {
 		Short: "Read and update the commonly used parameters",
 		Run: func(cmd *cobra.Command, args []string) {
 			var (
-				err       error
-				urlFlag   string
-				tokenFlag string
+				err         error
+				urlFlag     string
+				tokenFlag   string
+				offlineFlag bool
 			)
 
 			urlFlag, err = cmd.Flags().GetString("url")
@@ -304,12 +305,19 @@ func newFliConfigCmd(h CommandHandler) *cobra.Command {
 				os.Exit(1)
 			}
 
+			offlineFlag, err = cmd.Flags().GetBool("offline")
+			if err != nil {
+				cmd.Println(err)
+				os.Exit(1)
+			}
+
 			logger, err := newLogger()
 			handleError(cmd, err)
 
-			logger.Printf("fli config --url '%v' --token '%v' '%v'",
+			logger.Printf("fli config --url '%v' --token '%v' --offline '%v' '%v'",
 				urlFlag,
 				tokenFlag,
+				offlineFlag,
 				strings.Join(args, " "),
 			)
 
@@ -317,6 +325,7 @@ func newFliConfigCmd(h CommandHandler) *cobra.Command {
 			res, err = h.Config(
 				urlFlag,
 				tokenFlag,
+				offlineFlag,
 				args,
 			)
 			if err != nil {
@@ -328,13 +337,38 @@ func newFliConfigCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("url", "u", "", "FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com")
-	cmd.Flags().StringP("token", "t", "", "Absolute path of the authentication token file")
+	urlDefVal := ""
+	if v := ctx.Value(urlKey); v != nil {
+		urlDefVal = ctx.Value(urlKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"url",
+		"u",
+		urlDefVal,
+		"FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com)")
+
+	tokenDefVal := ""
+	if v := ctx.Value(tokenKey); v != nil {
+		tokenDefVal = ctx.Value(tokenKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"token",
+		"t",
+		tokenDefVal,
+		"Absolute path of the authentication token file")
+
+	cmd.Flags().BoolP(
+		"offline",
+		"",
+		false,
+		"Use this option to avoid URL and token validate with FlockerHub")
 
 	return cmd
 }
 
-func newFliCreateCmd(h CommandHandler) *cobra.Command {
+func newCreateCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("create", []string{
 			"[OPTIONS] VOLUMESET [VOLUME-NAME]",
@@ -389,13 +423,27 @@ func newFliCreateCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("attributes", "a", "", "A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	attributesDefVal := ""
+	if v := ctx.Value(attributesKey); v != nil {
+		attributesDefVal = ctx.Value(attributesKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"attributes",
+		"a",
+		attributesDefVal,
+		"A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliInitCmd(h CommandHandler) *cobra.Command {
+func newInitCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("init", []string{
 			"[OPTIONS] [VOLUMESET-NAME]",
@@ -448,13 +496,32 @@ func newFliInitCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("attributes", "a", "", "A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
-	cmd.Flags().StringP("description", "d", "", "A short description for the volumeset")
+	attributesDefVal := ""
+	if v := ctx.Value(attributesKey); v != nil {
+		attributesDefVal = ctx.Value(attributesKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"attributes",
+		"a",
+		attributesDefVal,
+		"A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
+
+	descriptionDefVal := ""
+	if v := ctx.Value(descriptionKey); v != nil {
+		descriptionDefVal = ctx.Value(descriptionKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"description",
+		"d",
+		descriptionDefVal,
+		"A short description for the volumeset")
 
 	return cmd
 }
 
-func newFliListCmd(h CommandHandler) *cobra.Command {
+func newListCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("list", []string{
 			"[OPTIONS] VOLUMESET",
@@ -538,16 +605,40 @@ func newFliListCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolP("all", "a", false, "Reports the complete hierarchy of the volumeset. If an argument is passed then the hierarchy of the object is displayed.")
-	cmd.Flags().BoolP("volume", "v", false, "Reports only the volumes")
-	cmd.Flags().BoolP("snapshot", "s", false, "Reports only the snapshots of the volume")
-	cmd.Flags().BoolP("branch", "b", false, "Reports only the branches")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	cmd.Flags().BoolP(
+		"all",
+		"a",
+		false,
+		"Reports the complete hierarchy of the volumeset. If an argument is passed then the hierarchy of the object is displayed.")
+
+	cmd.Flags().BoolP(
+		"volume",
+		"v",
+		false,
+		"Reports only the volumes")
+
+	cmd.Flags().BoolP(
+		"snapshot",
+		"s",
+		false,
+		"Reports only the snapshots of the volume")
+
+	cmd.Flags().BoolP(
+		"branch",
+		"b",
+		false,
+		"Reports only the branches")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliPullCmd(h CommandHandler) *cobra.Command {
+func newPullCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("pull", []string{
 			"[OPTIONS] VOLUMESET",
@@ -617,14 +708,38 @@ The following example explains how to pull a single snapshot of a volume
 		},
 	}
 
-	cmd.Flags().StringP("url", "u", "", "FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com")
-	cmd.Flags().StringP("token", "t", "", "Absolute path of the authentication token file")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	urlDefVal := ""
+	if v := ctx.Value(urlKey); v != nil {
+		urlDefVal = ctx.Value(urlKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"url",
+		"u",
+		urlDefVal,
+		"FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com)")
+
+	tokenDefVal := ""
+	if v := ctx.Value(tokenKey); v != nil {
+		tokenDefVal = ctx.Value(tokenKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"token",
+		"t",
+		tokenDefVal,
+		"Absolute path of the authentication token file")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliPushCmd(h CommandHandler) *cobra.Command {
+func newPushCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("push", []string{
 			"[OPTIONS] VOLUMESET",
@@ -694,14 +809,38 @@ The following example explains how to push a single snapshot of a volume
 		},
 	}
 
-	cmd.Flags().StringP("url", "u", "", "FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com")
-	cmd.Flags().StringP("token", "t", "", "Absolute path of the authentication token file")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	urlDefVal := ""
+	if v := ctx.Value(urlKey); v != nil {
+		urlDefVal = ctx.Value(urlKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"url",
+		"u",
+		urlDefVal,
+		"FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com)")
+
+	tokenDefVal := ""
+	if v := ctx.Value(tokenKey); v != nil {
+		tokenDefVal = ctx.Value(tokenKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"token",
+		"t",
+		tokenDefVal,
+		"Absolute path of the authentication token file")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliRemoveCmd(h CommandHandler) *cobra.Command {
+func newRemoveCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("remove", []string{
 			"[OPTIONS] VOLUMESET",
@@ -749,12 +888,16 @@ func newFliRemoveCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliSetupCmd(h CommandHandler) *cobra.Command {
+func newSetupCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("setup", []string{
 			"[OPTIONS]",
@@ -805,13 +948,27 @@ func newFliSetupCmd(h CommandHandler) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("zpool", "z", "", "ZFS zpool name that is to be used by fli")
-	cmd.Flags().BoolP("force", "f", false, "Force remove previous metadata files. This will remove your previously created objects if they are not synced with FlockerHub")
+	zpoolDefVal := ""
+	if v := ctx.Value(zpoolKey); v != nil {
+		zpoolDefVal = ctx.Value(zpoolKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"zpool",
+		"z",
+		zpoolDefVal,
+		"ZFS zpool name that is to be used by fli")
+
+	cmd.Flags().BoolP(
+		"force",
+		"f",
+		false,
+		"Force remove previous metadata files. This will remove your previously created objects if they are not synced with FlockerHub")
 
 	return cmd
 }
 
-func newFliSnapshotCmd(h CommandHandler) *cobra.Command {
+func newSnapshotCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("snapshot", []string{
 			"[OPTIONS] VOLUMESET:VOLUME [SNAPSHOT-NAME]",
@@ -895,16 +1052,55 @@ VOLUMESET and VOLUME could be a name or uuid.
 		},
 	}
 
-	cmd.Flags().StringP("branch", "b", "", "Branch name for the snapshot of volume")
-	cmd.Flags().BoolP("new-branch", "", false, "Create a new branch without a name for the snapshot of volume")
-	cmd.Flags().StringP("attributes", "a", "", "A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
-	cmd.Flags().StringP("description", "d", "", "A short description of the snapshot of the volume")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	branchDefVal := ""
+	if v := ctx.Value(branchKey); v != nil {
+		branchDefVal = ctx.Value(branchKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"branch",
+		"b",
+		branchDefVal,
+		"Branch name for the snapshot of volume")
+
+	cmd.Flags().BoolP(
+		"new-branch",
+		"",
+		false,
+		"Create a new branch without a name for the snapshot of volume")
+
+	attributesDefVal := ""
+	if v := ctx.Value(attributesKey); v != nil {
+		attributesDefVal = ctx.Value(attributesKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"attributes",
+		"a",
+		attributesDefVal,
+		"A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
+
+	descriptionDefVal := ""
+	if v := ctx.Value(descriptionKey); v != nil {
+		descriptionDefVal = ctx.Value(descriptionKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"description",
+		"d",
+		descriptionDefVal,
+		"A short description of the snapshot of the volume")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliSyncCmd(h CommandHandler) *cobra.Command {
+func newSyncCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("sync", []string{
 			"[OPTIONS] VOLUMESET",
@@ -978,15 +1174,44 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 		},
 	}
 
-	cmd.Flags().StringP("url", "u", "", "FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com")
-	cmd.Flags().StringP("token", "t", "", "Absolute path of the authentication token file")
-	cmd.Flags().BoolP("all", "a", false, "Sync all volumesets available locally")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	urlDefVal := ""
+	if v := ctx.Value(urlKey); v != nil {
+		urlDefVal = ctx.Value(urlKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"url",
+		"u",
+		urlDefVal,
+		"FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com)")
+
+	tokenDefVal := ""
+	if v := ctx.Value(tokenKey); v != nil {
+		tokenDefVal = ctx.Value(tokenKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"token",
+		"t",
+		tokenDefVal,
+		"Absolute path of the authentication token file")
+
+	cmd.Flags().BoolP(
+		"all",
+		"a",
+		false,
+		"Sync all volumesets available locally")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
 
 	return cmd
 }
 
-func newFliUpdateCmd(h CommandHandler) *cobra.Command {
+func newUpdateCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use: getMultiUseLine("update", []string{
 			"[OPTIONS] VOLUMESET",
@@ -1067,10 +1292,75 @@ The VOLUMESET, SNAPSHOT and VOLUME can be name or uuid. The BRANCH is always a n
 		},
 	}
 
-	cmd.Flags().StringP("name", "n", "", "New name for the object")
-	cmd.Flags().StringP("attributes", "a", "", "A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
-	cmd.Flags().StringP("description", "d", "", "Update the description for VOLUMESET and SNAPSHOT only. This option is ignored for VOLUME and BRANCH")
-	cmd.Flags().BoolP("full", "", false, "Report full UUIDs for objects instead of short UUIDs")
+	nameDefVal := ""
+	if v := ctx.Value(nameKey); v != nil {
+		nameDefVal = ctx.Value(nameKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"name",
+		"n",
+		nameDefVal,
+		"New name for the object")
+
+	attributesDefVal := ""
+	if v := ctx.Value(attributesKey); v != nil {
+		attributesDefVal = ctx.Value(attributesKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"attributes",
+		"a",
+		attributesDefVal,
+		"A comma separated list of a key-value pairs(ex: userKey1=userVal1,userKey2=userVal2)")
+
+	descriptionDefVal := ""
+	if v := ctx.Value(descriptionKey); v != nil {
+		descriptionDefVal = ctx.Value(descriptionKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"description",
+		"d",
+		descriptionDefVal,
+		"Update the description for VOLUMESET and SNAPSHOT only. This option is ignored for VOLUME and BRANCH")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
+
+	return cmd
+}
+
+func newVersionCmd(ctx context.Context, h CommandHandler) *cobra.Command {
+	var cmd = &cobra.Command{
+		Use:   "version",
+		Short: "Print the version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			var (
+				err error
+			)
+			logger, err := newLogger()
+			handleError(cmd, err)
+
+			logger.Printf("fli version '%v'",
+				strings.Join(args, " "),
+			)
+
+			var res CmdOutput
+			res, err = h.Version(
+				args,
+			)
+			if err != nil {
+				logger.Printf("ERROR: %v", err.Error())
+			}
+
+			handleError(cmd, err)
+			displayOutput(cmd, res)
+		},
+	}
 
 	return cmd
 }
@@ -1078,7 +1368,7 @@ The VOLUMESET, SNAPSHOT and VOLUME can be name or uuid. The BRANCH is always a n
 // CommandHandler inteface that implements handlers for cli commands
 type CommandHandler interface {
 	Clone(attributes string, full bool, args []string) (CmdOutput, error)
-	Config(url string, token string, args []string) (CmdOutput, error)
+	Config(url string, token string, offline bool, args []string) (CmdOutput, error)
 	Create(attributes string, full bool, args []string) (CmdOutput, error)
 	Init(attributes string, description string, args []string) (CmdOutput, error)
 	List(all bool, volume bool, snapshot bool, branch bool, full bool, args []string) (CmdOutput, error)
@@ -1089,4 +1379,5 @@ type CommandHandler interface {
 	Snapshot(branch string, newbranch bool, attributes string, description string, full bool, args []string) (CmdOutput, error)
 	Sync(url string, token string, all bool, full bool, args []string) (CmdOutput, error)
 	Update(name string, attributes string, description string, full bool, args []string) (CmdOutput, error)
+	Version(args []string) (CmdOutput, error)
 }

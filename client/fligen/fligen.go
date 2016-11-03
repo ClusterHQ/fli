@@ -26,8 +26,8 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/log"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/log"
 	"github.com/go-yaml/yaml"
 )
 
@@ -64,7 +64,6 @@ type (
 		Handler bool
 		// Needs completion - only used for root
 		Completion bool
-		Version    string
 		// Not used in YAML - command prefix for handler methods
 		Prefix string
 		// Alias for the command
@@ -113,7 +112,7 @@ const (
  */
 
 /*
- * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/go/client/cmd/cmdgen
+ * CODE GENERATED AUTOMATICALLY WITH github.com/ClusterHQ/fli/client/cmd/cmdgen
  * THIS FILE SHOULD NOT BE EDITED BY HAND
  */
 
@@ -125,9 +124,6 @@ import (
 {{range .RelImports}}"{{.}}"
 {{end}}
 )
-
-// GitHash ...
-var gitHash = ""
 
 func getMultiUseLine(sb string, mu []string) string {
 	var o = sb + " ;"
@@ -253,7 +249,7 @@ func (c sortedCommands) Less(i, j int) bool { return c[i].Name() < c[j].Name() }
 
 	// cmdTmpl template that generates cobra commands
 	cmdTmpl = `
-func new{{firstCharToUpper .Prefix}}{{firstCharToUpper .Name}}Cmd(h CommandHandler) *cobra.Command {
+func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	var cmd = &cobra.Command{ {{if len .Usage}}
 		Use: getMultiUseLine("{{.Name}}", []string{
 			{{range .Usage}}"{{.}}",
@@ -301,7 +297,18 @@ func new{{firstCharToUpper .Prefix}}{{firstCharToUpper .Name}}Cmd(h CommandHandl
 		}, {{else}}{{end}}
 	}
 
-	{{range .Flags}}cmd.Flags().{{firstCharToUpper .Type}}P("{{.Name}}", "{{.Short}}", {{if needsQuotes .Type}}"{{.Value}}"{{else}}{{.Value}}{{end}},"{{.Desc}}")
+	{{range .Flags}}{{if isStringType .Type}}{{if .Value}}
+	{{.Name}}DefVal := "{{.Value}}"{{else}}
+	{{.Name}}DefVal := ""
+	if v := ctx.Value({{.Name}}Key); v != nil {
+		{{.Name}}DefVal = ctx.Value({{.Name}}Key).(string)
+	}
+	{{end}}{{end}}
+	cmd.Flags().{{firstCharToUpper .Type}}P(
+		"{{.Name}}",
+		"{{.Short}}",
+		{{if isStringType .Type}}{{.Name}}DefVal{{else}}{{.Value}}{{end}},
+		"{{.Desc}}")
 	{{end}}
 
 	{{if .Completion}}
@@ -314,25 +321,11 @@ func new{{firstCharToUpper .Prefix}}{{firstCharToUpper .Name}}Cmd(h CommandHandl
 		},
 	}
 	complCmd.Flags().StringVarP(&outputF, "output", "o", "", "Generates bash completions file for fli"){{end}}
-	{{if .Version}}
-	var versionCmd = &cobra.Command {
-		Use: "version",
-		Short: "Print the version information",
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Print("fli version {{.Version}}")
-			if gitHash != "" {
-				cmd.Print(", build " + gitHash[:7])
-			}
-			cmd.Println()
-		},
-	}
-	{{end}}
 
-	{{if or .SubCommands .Version .Completion}}
+	{{if or .SubCommands .Completion}}
 	sortedCmds := sortedCommands{
-	{{range .SubCommands}}new{{firstCharToUpper .Prefix}}{{firstCharToUpper .Name}}Cmd(h),
-	{{end}}{{if .Version}}versionCmd,{{end}}{{if .Completion}}
-	complCmd,{{end}}
+	{{range .SubCommands}}new{{firstCharToUpper .Name}}Cmd(ctx, h),
+	{{end}}{{if .Completion}}complCmd,{{end}}
 	}
 
 	sort.Sort(sortedCmds)
@@ -360,7 +353,7 @@ func firstCharToUpper(s string) string {
 	return string(a)
 }
 
-func needsQuotes(t string) bool {
+func isStringType(t string) bool {
 	if t == "string" {
 		return true
 	}
@@ -382,7 +375,7 @@ func (g *Generator) ProcessCommand(prefix string, c *command, tmpl string) {
 
 	var fm = template.FuncMap{
 		"firstCharToUpper": firstCharToUpper,
-		"needsQuotes":      needsQuotes,
+		"isStringType":     isStringType,
 		"replaceDash":      replaceDash,
 	}
 	var t = template.Must(template.New("cmd").Funcs(fm).Parse(tmpl))
@@ -436,7 +429,8 @@ func (g *Generator) Generate() {
 		},
 		RelImports: []string{
 			"github.com/spf13/cobra",
-			"github.com/ClusterHQ/go/log",
+			"github.com/ClusterHQ/fli/log",
+			"golang.org/x/net/context",
 		},
 		Pkg:  g.pkg,
 		Root: &g.ctree,
@@ -444,7 +438,7 @@ func (g *Generator) Generate() {
 
 	var fm = template.FuncMap{
 		"firstCharToUpper": firstCharToUpper,
-		"needsQuotes":      needsQuotes,
+		"isStringType":     isStringType,
 	}
 	var tmpl = template.Must(template.New("cmd").Funcs(fm).Parse(hTmpl))
 	var err = tmpl.Execute(&g.buf, h) // generate header

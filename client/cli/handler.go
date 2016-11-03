@@ -27,34 +27,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClusterHQ/go/dl/datalayer"
-	dlbin "github.com/ClusterHQ/go/dl/encdec/binary"
+	"github.com/ClusterHQ/fli/dl/datalayer"
+	dlbin "github.com/ClusterHQ/fli/dl/encdec/binary"
 
-	"github.com/ClusterHQ/go/dp/dataplane"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/dp/sync"
+	"github.com/ClusterHQ/fli/dp/dataplane"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/dp/sync"
 
-	"github.com/ClusterHQ/go/mdsimpls/restfulstorage"
-	"github.com/ClusterHQ/go/mdsimpls/sqlite3storage"
+	"github.com/ClusterHQ/fli/mdsimpls/restfulstorage"
+	"github.com/ClusterHQ/fli/mdsimpls/sqlite3storage"
 
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 
-	"github.com/ClusterHQ/go/protocols"
+	"github.com/ClusterHQ/fli/protocols"
 
-	"github.com/ClusterHQ/go/securefilepath"
+	"github.com/ClusterHQ/fli/securefilepath"
 
-	"github.com/ClusterHQ/go/dl/blobdiffer"
-	"github.com/ClusterHQ/go/dl/encdec"
-	"github.com/ClusterHQ/go/dl/executor"
-	"github.com/ClusterHQ/go/dl/filediffer/variableblk"
-	dlhash "github.com/ClusterHQ/go/dl/hash"
-	"github.com/ClusterHQ/go/dl/hash/adler32"
-	"github.com/ClusterHQ/go/dl/zfs"
-	"github.com/ClusterHQ/go/vh/cauthn"
+	"github.com/ClusterHQ/fli/dl/blobdiffer"
+	"github.com/ClusterHQ/fli/dl/encdec"
+	"github.com/ClusterHQ/fli/dl/executor"
+	"github.com/ClusterHQ/fli/dl/filediffer/variableblk"
+	dlhash "github.com/ClusterHQ/fli/dl/hash"
+	"github.com/ClusterHQ/fli/dl/hash/adler32"
+	"github.com/ClusterHQ/fli/dl/zfs"
+	"github.com/ClusterHQ/fli/vh/cauthn"
 )
 
 //go:generate go run ../cmd/cligen/main.go -yaml cmd.yml -output cmds_gen.go -package cli

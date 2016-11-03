@@ -25,15 +25,15 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/dp/sync"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
-	"github.com/ClusterHQ/go/protocols"
-	"github.com/ClusterHQ/go/rest"
-	"github.com/ClusterHQ/go/vh/cauthn"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/dp/sync"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/protocols"
+	"github.com/ClusterHQ/fli/rest"
+	"github.com/ClusterHQ/fli/vh/cauthn"
 )
 
 type (

@@ -17,10 +17,10 @@
 package testutil
 
 import (
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/pborman/uuid"
 )
 

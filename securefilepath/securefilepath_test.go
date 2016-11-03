@@ -27,8 +27,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ClusterHQ/go/dl/testutils"
-	"github.com/ClusterHQ/go/securefilepath"
+	"github.com/ClusterHQ/fli/dl/testutils"
+	"github.com/ClusterHQ/fli/securefilepath"
 )
 
 type ByPath []securefilepath.SecureFilePath

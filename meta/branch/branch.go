@@ -19,9 +19,9 @@ package branch
 import (
 	"strings"
 
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/volumeset"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/pborman/uuid"
 )
 

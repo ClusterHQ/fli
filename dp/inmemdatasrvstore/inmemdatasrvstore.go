@@ -21,7 +21,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ClusterHQ/go/dp/datasrvstore"
+	"github.com/ClusterHQ/fli/dp/datasrvstore"
 )
 
 type (

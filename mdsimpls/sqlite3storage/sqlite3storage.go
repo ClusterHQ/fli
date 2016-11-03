@@ -19,22 +19,21 @@ package sqlite3storage
 import (
 	"database/sql"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/ClusterHQ/go/dp/datasrvstore"
-	"github.com/ClusterHQ/go/dp/metastore"
-	"github.com/ClusterHQ/go/dp/sync"
-	"github.com/ClusterHQ/go/errors"
-	"github.com/ClusterHQ/go/meta/attrs"
-	"github.com/ClusterHQ/go/meta/blob"
-	"github.com/ClusterHQ/go/meta/branch"
-	"github.com/ClusterHQ/go/meta/bush"
-	"github.com/ClusterHQ/go/meta/snapshot"
-	"github.com/ClusterHQ/go/meta/util"
-	"github.com/ClusterHQ/go/meta/volume"
-	"github.com/ClusterHQ/go/meta/volumeset"
-	"github.com/ClusterHQ/go/securefilepath"
+	"github.com/ClusterHQ/fli/dp/datasrvstore"
+	"github.com/ClusterHQ/fli/dp/metastore"
+	"github.com/ClusterHQ/fli/dp/sync"
+	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/attrs"
+	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/branch"
+	"github.com/ClusterHQ/fli/meta/bush"
+	"github.com/ClusterHQ/fli/meta/snapshot"
+	"github.com/ClusterHQ/fli/meta/util"
+	"github.com/ClusterHQ/fli/meta/volume"
+	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/securefilepath"
 
 	// So CLI and round trip tests can run properly
 	_ "github.com/mattn/go-sqlite3"
@@ -386,15 +385,17 @@ func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapsho
 		params = append(params, q.ID.String())
 	}
 
+	// Sqlite3 returned error "too many parameters" when it is over a few hundreds IDs(500 worked, 1,000 failed).
+	// Since Sqlite3 is used locally, it is not a security issue as much as in postgres, using direct ID string instead
+	// of 'IN'.
 	if len(q.IDs) != 0 {
 		statement += " WHERE s.id IN ("
-		var placeholder []string
-		for _, id := range q.IDs {
-			placeholder = append(placeholder, "?")
-			params = append(params, id.String())
+		for idx, id := range q.IDs {
+			if idx != 0 {
+				statement += ", "
+			}
+			statement += "\"" + id.String() + "\""
 		}
-
-		statement += strings.Join(placeholder, ",")
 		statement += ")"
 	}
 
@@ -527,6 +528,7 @@ func getVolumeSets(tx *sql.Tx, q volumeset.Query) ([]*volumeset.VolumeSet, error
 		err  error
 	)
 
+	// Note: Unlike in postgres, using left join with attributes turns out slower than without it.
 	statement :=
 		"SELECT [id], [creation_time], [creator_username], [creator_uuid], [owner_username], [owner_uuid], [size], [last_modified_time], " +
 			"(SELECT count(id) AS [branchCnt] FROM [branch] AS b WHERE b.volumeset_id = v.id), " +
@@ -540,15 +542,17 @@ func getVolumeSets(tx *sql.Tx, q volumeset.Query) ([]*volumeset.VolumeSet, error
 		params = append(params, q.ID.String())
 	}
 
+	// Sqlite3 returned error "too many parameters" when it is over a few hundreds IDs(500 worked, 1,000 failed).
+	// Since Sqlite3 is used locally, it is not a security issue as much as in postgres, using direct ID string instead
+	// of 'IN'.
 	if len(q.IDs) != 0 {
 		statement += " WHERE id IN ("
-		var placeholder []string
-		for _, id := range q.IDs {
-			placeholder = append(placeholder, "?")
-			params = append(params, id.String())
+		for idx, id := range q.IDs {
+			if idx != 0 {
+				statement += ", "
+			}
+			statement += "\"" + id.String() + "\""
 		}
-
-		statement += strings.Join(placeholder, ",")
 		statement += ")"
 	}
 
@@ -1395,8 +1399,18 @@ func (store *Sqlite3Storage) forkBranch(branchID branch.ID, branchName string,
 		}
 	}()
 
+	depth := 0
+	if snapshots[0].ParentID != nil {
+		parent, err := getSnapshot(tx, *snapshots[0].ParentID)
+		if err != nil {
+			return err
+		}
+		depth = parent.Depth
+	}
+
 	for _, sn := range snapshots {
-		err = importSnapshot(tx, sn)
+		depth++
+		err = importSnapshot(tx, sn, depth)
 		if err != nil {
 			return err
 		}
@@ -1448,8 +1462,15 @@ func (store *Sqlite3Storage) ExtendBranch(snapshots ...*snapshot.Snapshot) error
 		}
 	}()
 
+	parent, err := getSnapshot(tx, *snapshots[0].ParentID)
+	if err != nil {
+		return err
+	}
+	depth := parent.Depth
+
 	for _, sn := range snapshots {
-		err = importSnapshot(tx, sn)
+		depth++
+		err = importSnapshot(tx, sn, depth)
 		if err != nil {
 			return err
 		}
@@ -1459,7 +1480,7 @@ func (store *Sqlite3Storage) ExtendBranch(snapshots ...*snapshot.Snapshot) error
 }
 
 // importSnapshot is the helper function for fork and extend branch; it adds new snapshots info to the proper tables.
-func importSnapshot(tx *sql.Tx, sn *snapshot.Snapshot) error {
+func importSnapshot(tx *sql.Tx, sn *snapshot.Snapshot, depth int) error {
 	insertSnapshot, err := tx.Prepare(`
 INSERT INTO [snapshot] ([volumeset_id], [id], [parent_id], [blob_id], [creation_time], [creator_username],
 [creator_uuid], [owner_username], [owner_uuid], [size], [last_modified_time], [depth])
@@ -1470,20 +1491,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	}
 	defer insertSnapshot.Close()
 
-	var (
-		dbParentID interface{}
-		depth      = 1
-	)
+	var dbParentID interface{}
 
 	if sn.ParentID != nil {
 		dbParentID = sn.ParentID.String()
-
-		// TODO: Pass in depth(read the first snapshot's parent's depth) so no need to read every time
-		parent, err := getSnapshot(tx, *sn.ParentID)
-		if err != nil {
-			return err
-		}
-		depth = parent.Depth + 1
 	}
 
 	_, err = getSnapshot(tx, sn.ID)

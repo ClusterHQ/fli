@@ -22,7 +22,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/ClusterHQ/go/client/cligen"
+	"github.com/ClusterHQ/fli/client/cligen"
 )
 
 var (
