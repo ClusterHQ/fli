@@ -28,7 +28,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kuba--/xattr"
+	"github.com/pkg/xattr"
 
 	"github.com/ClusterHQ/fli/dl/record"
 )

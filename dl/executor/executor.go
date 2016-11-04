@@ -18,6 +18,7 @@ package executor
 
 import (
 	"fmt"
+
 	"github.com/ClusterHQ/fli/dl/record"
 	"github.com/ClusterHQ/fli/errors"
 )

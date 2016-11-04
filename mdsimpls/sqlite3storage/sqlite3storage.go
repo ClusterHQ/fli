@@ -99,6 +99,8 @@ func Create(path securefilepath.SecureFilePath) (*Sqlite3Storage, error) {
 // Note: Time stamp is stored as int64
 func createSchema(db *sql.DB) error {
 	statements := []string{`
+PRAGMA page_size = 4096
+`, `
 CREATE TABLE [volumeset] (
     [id] text,
     [creation_time] integer,
@@ -196,6 +198,7 @@ func Open(path securefilepath.SecureFilePath) (metastore.Client, error) {
 	if err != nil {
 		return nil, errors.Errorf("Cannot create data-plane storage at %v: %v", path.Path(), err)
 	}
+
 	return &Sqlite3Storage{
 		path: path,
 		db:   db,

@@ -48,6 +48,24 @@ func list(root string) ([]string, error) {
 	return names[:len(names)-1], nil
 }
 
+func version() string {
+	if o, err := exec.Command("modinfo", "zfs").Output(); err == nil {
+		// Dumps a lot of info here, just split it at new line
+		res := strings.Split(string(o), "\n")
+
+		for _, r := range res {
+			// ZFS version information starts with 'version:' so look for that
+			if strings.HasPrefix(r, "version:") {
+				// Get the version and return
+				return strings.TrimSpace(strings.TrimLeft(r, "version:"))
+			}
+		}
+	}
+
+	// Didn't find the version info
+	return ""
+}
+
 // exists returns true if the specified file system path exists
 func exists(fs string) bool {
 	_, err := run([]string{"list", fs}...)

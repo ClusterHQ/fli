@@ -189,6 +189,7 @@ fli synchronizes metadata with FlockerHub and can push and pull snapshots of vol
 		newSyncCmd(ctx, h),
 		newUpdateCmd(ctx, h),
 		newVersionCmd(ctx, h),
+		newInfoCmd(ctx, h),
 		complCmd,
 	}
 
@@ -1365,6 +1366,37 @@ func newVersionCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 	return cmd
 }
 
+func newInfoCmd(ctx context.Context, h CommandHandler) *cobra.Command {
+	var cmd = &cobra.Command{
+		Use:   "info",
+		Short: "Print the fli environment information",
+		Run: func(cmd *cobra.Command, args []string) {
+			var (
+				err error
+			)
+			logger, err := newLogger()
+			handleError(cmd, err)
+
+			logger.Printf("fli info '%v'",
+				strings.Join(args, " "),
+			)
+
+			var res CmdOutput
+			res, err = h.Info(
+				args,
+			)
+			if err != nil {
+				logger.Printf("ERROR: %v", err.Error())
+			}
+
+			handleError(cmd, err)
+			displayOutput(cmd, res)
+		},
+	}
+
+	return cmd
+}
+
 // CommandHandler inteface that implements handlers for cli commands
 type CommandHandler interface {
 	Clone(attributes string, full bool, args []string) (CmdOutput, error)
@@ -1380,4 +1412,5 @@ type CommandHandler interface {
 	Sync(url string, token string, all bool, full bool, args []string) (CmdOutput, error)
 	Update(name string, attributes string, description string, full bool, args []string) (CmdOutput, error)
 	Version(args []string) (CmdOutput, error)
+	Info(args []string) (CmdOutput, error)
 }

@@ -89,6 +89,9 @@ func (s *fsStorage) initialize() error {
 	return nil
 }
 
+func (s *fsStorage) Version() string {
+	return "Fake FS"
+}
 func (s *fsStorage) EmptyBlobID(vsid volumeset.ID) (blob.ID, error) {
 	return emptyID, nil
 }

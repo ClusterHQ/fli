@@ -98,7 +98,7 @@ func oneWaySyncCommonVolSet(s meta.MdsTriplet, vsid volumeset.ID) (MetaConflicts
 		SnC: snapMetaConflicts, BrC: branchMetaConflicts}, nil
 }
 
-// updates metadata of common volumeset.
+// updateTgtVSMeta updates meta data of a volumeset using the three way sync
 func updateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflict, error) {
 	var (
 		vsCur, vsInit *volumeset.VolumeSet
@@ -110,6 +110,7 @@ func updateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflic
 	if err != nil {
 		return nil, err
 	}
+
 	if vsCur == nil {
 		return nil, nil
 	}
@@ -134,6 +135,7 @@ func updateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflic
 		if err != nil {
 			return nil, err
 		}
+
 		_, err = s.Init.UpdateVolumeSet(vsConfl.Tgt, nil)
 		if err != nil {
 			return nil, err
@@ -163,34 +165,45 @@ func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 		return nil, err
 	}
 
+	var snapsInit []*snapshot.Snapshot
+	if s.Init != nil {
+		snapsInit, err = metastore.GetSnapshots(s.Init, snapshot.Query{
+			VolSetID: vsid,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	snapidsTgt, err := s.Tgt.GetSnapshotIDs(vsid)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build a map(which snapshot exists on target) for quick look up
+	// Build look up maps(which snapshot exists on a MDS) for quick look up later
 	tgtSnapIDMap := make(map[snapshot.ID]int)
 	for _, id := range snapidsTgt {
 		tgtSnapIDMap[id] = 0
 	}
 
-	var (
-		snapInit  *snapshot.Snapshot
-		snapPairs []*metastore.SnapshotPair
-	)
+	initSnapIDMap := make(map[snapshot.ID]int)
+	for idx, snap := range snapsInit {
+		initSnapIDMap[snap.ID] = idx
+	}
+
+	var snapPairs []*metastore.SnapshotPair
 	for _, snap := range snapsCur {
 		if _, ok := tgtSnapIDMap[snap.ID]; !ok {
 			continue
 		}
 
+		var snapInit *snapshot.Snapshot
 		if s.Init != nil {
-			snapInit, err = metastore.GetSnapshot(s.Init, snap.ID)
-			if err != nil {
-				if _, ok := err.(*metastore.ErrSnapshotNotFound); ok {
-					return nil, errors.Errorf("Faield to find a snapshot locally that is expected to exist.")
-				}
-				return nil, err
+			idx, ok := initSnapIDMap[snap.ID]
+			if !ok {
+				return nil, errors.Errorf("Faield to find a snapshot locally that is expected to exist.")
 			}
+			snapInit = snapsInit[idx]
 		}
 
 		snapPairs = append(
@@ -251,7 +264,7 @@ func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 }
 
 func updateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMetaConflict, error) {
-	//TODO: to be implemented
+	// TODO: to be implemented
 	return []meta.BranchMetaConflict{}, nil
 }
 
@@ -272,58 +285,43 @@ func updateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMet
 ************************************************************************************************/
 func CheckVSConflict(vsTgt, vsCur, vsInit *volumeset.VolumeSet) metastore.ResolveStatus {
 	if vsCur.MetaEqual(vsInit) {
-		//ino change on client, regardless of what happened on tgt, we use its copy
 		return meta.UseTgtNoConflict
 	}
 
 	if vsTgt.MetaEqual(vsInit) {
-		//no change on tgt, so use current copy
 		return meta.UseCurrent
 	}
 
-	//change on tgt as well
 	if vsTgt.MetaEqual(vsCur) {
-		//magically, client's update matched another client's update. so basically a no-op.
-		//use target copy.
 		return meta.UseTgtNoConflict
 	}
-	//target is different from init and is different from current.
-	//that means someone else preempted us. we have a conflict.
+
 	return meta.UseTgtConflict
 }
 
 // CheckSnapConflict ...
-//TODO: add interface to eliminate code duplication with checkVSConflict()
 func CheckSnapConflict(snapTgt, snapCur, snapInit *snapshot.Snapshot) metastore.ResolveStatus {
 	if snapCur.Equals(snapInit) {
-		//no change on client
 		if snapCur.Equals(snapTgt) {
-			//no change on client, and no change on vh
 			return meta.UseTgtNoConflict
 		}
-		//no change on client, but vh updated. so use vh copy.
 		return meta.UseTgtNoConflict
 	}
-	//change on client
+
 	if snapTgt.Equals(snapInit) {
-		//no change on tgt, so use current copy
 		return meta.UseCurrent
 	}
-	//change on tgt as well
+
 	if snapTgt.Equals(snapCur) {
-		//magically, client's update matched another client's update. no op.
-		//keep this case separate from the one above for future logging/debugging
 		return meta.UseTgtNoConflict
 	}
-	//target is different from init and is different from current.
-	//that means someone else preempted us we have a conflict.
+
 	return meta.UseTgtConflict
 }
 
 // Report prints out conflicts.
 func (c *MetaConflicts) Report() {
 	if c.HasConflicts() == false {
-		//no conflicts
 		log.Println("No conflicts were detected.")
 		return
 	}

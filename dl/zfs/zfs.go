@@ -86,7 +86,10 @@ func Close() {
 	finish()
 }
 
-// ZFS implements datalayer.Storage interface
+// Version fetch the zfs kernel version
+func (z ZFS) Version() string {
+	return version()
+}
 
 // BlobDiffer is the ZFS implementation of the Storage interface
 func (z ZFS) BlobDiffer() datalayer.BlobDifferFactory {

@@ -25,11 +25,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kuba--/xattr"
-
 	dlhash "github.com/ClusterHQ/fli/dl/hash"
 	"github.com/ClusterHQ/fli/dl/record"
 	"github.com/ClusterHQ/fli/errors"
+	"github.com/pkg/xattr"
 )
 
 //Returns Xattrs of a file as a map

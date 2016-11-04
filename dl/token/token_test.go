@@ -20,10 +20,11 @@ import (
 	"github.com/ClusterHQ/fli/dl/token"
 	"github.com/ClusterHQ/fli/meta/blob"
 
-	"github.com/ClusterHQ/fli/meta/volumeset"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
 func TestUploadToken(t *testing.T) {

@@ -53,6 +53,9 @@ type (
 
 	// Storage defines common interface for all data storage back ends
 	Storage interface {
+		// Returns the storage version
+		Version() string
+
 		// BlobDiffer returns the associated blob differ of the storage
 		BlobDiffer() BlobDifferFactory
 

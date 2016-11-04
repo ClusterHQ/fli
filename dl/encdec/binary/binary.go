@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"encoding/binary"
+
 	"github.com/ClusterHQ/fli/dl/encdec"
 	"github.com/ClusterHQ/fli/dl/record"
 	"github.com/ClusterHQ/fli/errors"

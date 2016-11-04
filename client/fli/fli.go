@@ -531,11 +531,14 @@ func displayObjects(vsObj volumesetObjects, full bool) []Result {
 func handleZFSErr(err error) error {
 	switch err.(type) {
 	case *zfs.ErrZfsNotFound:
-		return errors.New("Missing ZFS kernel module\nVisit https://clusterhq.com/ for instructions to install ZFS")
+		return errors.Errorf(`Missing ZFS kernel module
+Visit %s for instructions to install ZFS`, flockerHubRef)
 	case *zfs.ErrZfsUtilsNotFound:
-		return errors.New("Missing ZFS utilities\nVisit https://clusterhq.com/ for instructions to install ZFS utilities")
+		return errors.Errorf(`Missing ZFS utilities
+Visit %s for instructions to install ZFS utilities`, flockerHubRef)
 	case *zfs.ErrZpoolNotFound:
-		return errors.Errorf("%s\nVisit https://clusterhq.com/ for instructions to create ZPOOL", err.Error())
+		return errors.Errorf(`%s
+Visit https://clusterhq.com/ for instructions to create ZPOOL`, err.Error())
 
 	}
 
@@ -559,7 +562,8 @@ func Execute() {
 	logFile := filepath.Join(logDir, "fli.log")
 	fp, err := os.OpenFile(logFile, (os.O_CREATE | os.O_WRONLY | os.O_APPEND), 0666)
 	if err != nil {
-		fmt.Printf("Failed to set the log output file (%v)\n", logFile)
+		fmt.Printf("Failed to set the log output file (%v)", logFile)
+		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 

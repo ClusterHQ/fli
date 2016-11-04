@@ -17,10 +17,11 @@
 package datasrvmgr_test
 
 import (
+	"testing"
+
 	"github.com/ClusterHQ/fli/dp/datasrvmgr"
 	"github.com/ClusterHQ/fli/dp/inmemdatasrvstore"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 // TestManager ...

@@ -31,6 +31,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"github.com/ClusterHQ/fli/dl/datalayer"
@@ -41,6 +42,25 @@ import (
 func initialize() {
 	log.Printf("Initiating Lib ZFS core.")
 	C.libzfs_core_init()
+}
+
+// TODO Find a better way to find it via zfs lib
+func version() string {
+	if o, err := exec.Command("modinfo", "zfs").Output(); err == nil {
+		// Dumps a lot of info here, just split it at new line
+		res := strings.Split(string(o), "\n")
+
+		for _, r := range res {
+			// ZFS version information starts with 'version:' so look for that
+			if strings.HasPrefix(r, "version:") {
+				// Get the version and return
+				return strings.TrimSpace(strings.TrimLeft(r, "version:"))
+			}
+		}
+	}
+
+	// Didn't find the version info
+	return ""
 }
 
 // Finish with the libzfs_core. This should be called after the system

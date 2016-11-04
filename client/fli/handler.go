@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"runtime"
+
 	dlbin "github.com/ClusterHQ/fli/dl/encdec/binary"
 	dladler32 "github.com/ClusterHQ/fli/dl/hash/adler32"
 	"github.com/ClusterHQ/fli/dp/dataplane"
@@ -1157,59 +1159,50 @@ func (c *Handler) Config(url string, token string, offline bool, args []string) 
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	if url == "" && token == "" {
-		res := Result{}
-
-		res.Tab = append(res.Tab, []string{"FlockerHub URL:", c.CfgParams.FlockerHubURL})
-		res.Tab = append(res.Tab, []string{"Authentication Token File:", c.CfgParams.AuthTokenFile})
-
-		cmdOut.Op = append(cmdOut.Op, res)
-	} else {
-		if url != "" {
-			if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-				url = "https://" + url
-			}
-
-			c.CfgParams.FlockerHubURL = url
+	if url != "" {
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			url = "https://" + url
 		}
 
-		if token != "" {
-			if !filepath.IsAbs(token) {
-				return cmdOut, fmt.Errorf("Token file (%s) is not an absolute path", token)
-			}
+		c.CfgParams.FlockerHubURL = url
+	}
 
-			if _, err := os.Stat(token); os.IsNotExist(err) {
-				return cmdOut, fmt.Errorf("Token file (%s) does not exists", token)
-			}
-
-			c.CfgParams.AuthTokenFile = token
+	if token != "" {
+		if !filepath.IsAbs(token) {
+			return cmdOut, errors.Errorf("Token file (%s) is not an absolute path", token)
 		}
 
-		cfg := NewConfig(c.ConfigFile)
-		if err := cfg.UpdateConfig(c.CfgParams); err != nil {
-			return CmdOutput{}, err
+		if _, err := os.Stat(token); os.IsNotExist(err) {
+			return cmdOut, errors.Errorf("Token file (%s) does not exists", token)
 		}
 
-		if !offline {
-			if c.CfgParams.FlockerHubURL == "" {
-				return cmdOut, errors.New(`FlockerHub URL is not set.
+		c.CfgParams.AuthTokenFile = token
+	}
+
+	cfg := NewConfig(c.ConfigFile)
+	if err := cfg.UpdateConfig(c.CfgParams); err != nil {
+		return CmdOutput{}, err
+	}
+
+	if !offline {
+		if c.CfgParams.FlockerHubURL == "" {
+			return cmdOut, errors.New(`FlockerHub URL is not set.
 To skip URL validation use --offline option`)
-			}
+		}
 
-			if c.CfgParams.AuthTokenFile == "" {
-				return cmdOut, errors.New(`Authentication token file is not set.
+		if c.CfgParams.AuthTokenFile == "" {
+			return cmdOut, errors.New(`Authentication token file is not set.
 To skip URL validation use --offline option`)
-			}
+		}
 
-			fhMds, err := c.getRestfulMds(c.CfgParams.FlockerHubURL, c.CfgParams.AuthTokenFile)
-			if err != nil {
-				return cmdOut, err
-			}
+		fhMds, err := c.getRestfulMds(c.CfgParams.FlockerHubURL, c.CfgParams.AuthTokenFile)
+		if err != nil {
+			return cmdOut, err
+		}
 
-			_, err = fhMds.GetVolumeSets(volumeset.Query{})
-			if err != nil {
-				return cmdOut, err
-			}
+		_, err = fhMds.GetVolumeSets(volumeset.Query{})
+		if err != nil {
+			return cmdOut, err
 		}
 	}
 
@@ -1218,12 +1211,56 @@ To skip URL validation use --offline option`)
 
 // Version ...
 func (c *Handler) Version(args []string) (CmdOutput, error) {
-	versionStr := "fli version " + version
-	if gitHash != "" && len(gitHash) == 40 { // git hash should be 40 char long
-		versionStr += ", build " + gitHash[:7]
+	tab := [][]string{}
+
+	tab = append(tab, []string{"Version:", version})
+	if gitCommit != "" && len(gitCommit) == 40 {
+		// git hash should be 40 char long
+		tab = append(tab, []string{"Git commit:", gitCommit[:7]})
 	}
 
-	return CmdOutput{Op: []Result{{Str: versionStr}}}, nil
+	return CmdOutput{Op: []Result{{Tab: tab}}}, nil
+}
+
+// Info ...
+func (c *Handler) Info(args []string) (CmdOutput, error) {
+	tab := [][]string{}
+
+	tab = append(tab, []string{"Version:", version})
+
+	if gitCommit != "" && len(gitCommit) == 40 {
+		// git hash should be 40 char long
+		tab = append(tab, []string{"Git commit:", gitCommit})
+	}
+
+	if buildTime != "" {
+		tab = append(tab, []string{"Built:", buildTime})
+	}
+
+	tab = append(tab, []string{"OS/Arch:", runtime.GOOS + "/" + runtime.GOARCH})
+
+	if c.CfgParams.FlockerHubURL == "" {
+		// FlockerHubURL is not set so just use the default
+		c.CfgParams.FlockerHubURL = flockerHubURL
+	}
+	tab = append(tab, []string{"FlockerHub URL:", c.CfgParams.FlockerHubURL})
+
+	if c.CfgParams.AuthTokenFile != "" {
+		tab = append(tab, []string{"Auth Token File:", c.CfgParams.AuthTokenFile})
+	}
+
+	if c.CfgParams.Zpool != "" {
+		tab = append(tab, []string{"ZPOOL:", c.CfgParams.Zpool})
+	}
+
+	if store, err := getStorage(c.CfgParams.Zpool); err == nil { // Error here is ignored
+		zfsVer := store.Version()
+		if zfsVer != "" {
+			tab = append(tab, []string{"ZFS Version:", zfsVer})
+		}
+	}
+
+	return CmdOutput{Op: []Result{{Tab: tab}}}, nil
 }
 
 // NewHandler ...

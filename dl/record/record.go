@@ -35,7 +35,7 @@ import (
 	"time"
 
 	dlhash "github.com/ClusterHQ/fli/dl/hash"
-	"github.com/kuba--/xattr"
+	"github.com/pkg/xattr"
 )
 
 // IMPORTANT: Any new record type should be register with gob
