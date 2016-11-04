@@ -6,7 +6,7 @@ Just like you can use Git to copy, branch, push and pull code, you can use Fli t
 Fli lets you take incremental snapshots of any database or data volume that runs on Linux, and push those snapshots to a hosted volume repository called FlockerHub where they can be accessed by any person or machine to whom you’ve granted access.  
 Fli can also be used without FlockerHub to manage data volumes locally.
 
-![Fli logo]("https://clusterhq.com/assets/images/logos/fli-portrait-dark.png" "Fli")
+![Fli logo](https://clusterhq.com/assets/images/logos/fli-portrait-dark.png "Fli")
 
 Fli uses ZFS for taking and managing snapshots.
 Because the snapshots are incremental, each additional push or pull to the FlockerHub sends only part of the data, speeding up transfer times and reducing bandwidth consumption.
