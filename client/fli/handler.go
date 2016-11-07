@@ -44,10 +44,44 @@ import (
 
 // Handler ...
 type Handler struct {
-	CfgParams  ConfigParams
-	ConfigFile string
-	MdsCurrent string
-	MdsInitial string
+	CfgParams      ConfigParams
+	ConfigFile     string
+	MdsPathCurrent string
+	MdsPathInitial string
+	mdsCurrent     metastore.Client
+	mdsInitial     metastore.Client
+}
+
+// getMdsCurrent opens the DB connection if it has not been opened before; otherwise returns the existing
+// connection.
+func (c *Handler) getMdsCurrent() (metastore.Client, error) {
+	if c.mdsCurrent != nil {
+		return c.mdsCurrent, nil
+	}
+
+	mds, err := getMds(c.MdsPathCurrent)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mdsCurrent = mds
+	return mds, nil
+}
+
+// getMdsInitial opens the DB connection if it has not been opened before; otherwise returns the existing
+// connection.
+func (c *Handler) getMdsInitial() (metastore.Client, error) {
+	if c.mdsInitial != nil {
+		return c.mdsInitial, nil
+	}
+
+	mds, err := getMds(c.MdsPathInitial)
+	if err != nil {
+		return nil, err
+	}
+
+	c.mdsInitial = mds
+	return mds, nil
 }
 
 // Clone create a volume from source which could be a snapshot or a branch if more than 1 match found for branch & snapshot together
@@ -59,7 +93,7 @@ func (c *Handler) Clone(attributes string, full bool, args []string) (CmdOutput,
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -155,7 +189,7 @@ func (c *Handler) Snapshot(branchName string, newBranch bool, attributes string,
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -226,7 +260,7 @@ func (c *Handler) Create(attributes string, full bool, args []string) (CmdOutput
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -307,7 +341,7 @@ func (c *Handler) Init(attributes string, description string, args []string) (Cm
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -386,7 +420,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mdsCurr, err := getMds(c.MdsCurrent)
+	mdsCurr, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -460,7 +494,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			},
 		)
 	} else {
-		mdsInit, err := getMds(c.MdsInitial)
+		mdsInit, err := c.getMdsInitial()
 		if err != nil {
 			return cmdOut, err
 		}
@@ -514,7 +548,7 @@ func (c *Handler) Push(url string, token string, full bool, args []string) (CmdO
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -594,7 +628,7 @@ func (c *Handler) Pull(url string, token string, full bool, args []string) (CmdO
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -674,7 +708,7 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -819,7 +853,7 @@ func (c *Handler) Remove(full bool, args []string) (CmdOutput, error) {
 		return cmdOut, ErrInvalidArgs{}
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -908,7 +942,7 @@ func (c *Handler) List(all bool, volumeFlag bool, snapshotFlag bool, branchFlag 
 		search = args[0]
 	}
 
-	mds, err := getMds(c.MdsCurrent)
+	mds, err := c.getMdsCurrent()
 	if err != nil {
 		return cmdOut, err
 	}
@@ -1091,12 +1125,12 @@ func (c *Handler) Setup(zpool string, force bool, args []string) (CmdOutput, err
 		return CmdOutput{}, ErrInvalidArgs{}
 	}
 
-	mdsCurrentFPath, err := securefilepath.New(c.MdsCurrent)
+	mdsCurrentFPath, err := securefilepath.New(c.MdsPathCurrent)
 	if err != nil {
 		return CmdOutput{}, err
 	}
 
-	mdsInitialFPath, err := securefilepath.New(c.MdsInitial)
+	mdsInitialFPath, err := securefilepath.New(c.MdsPathInitial)
 	if err != nil {
 		return CmdOutput{}, err
 	}
@@ -1266,7 +1300,7 @@ func (c *Handler) Info(args []string) (CmdOutput, error) {
 // NewHandler ...
 func NewHandler(params ConfigParams, cfgFile, mdsCurr, mdsInit string) *Handler {
 	return &Handler{CfgParams: params,
-		ConfigFile: cfgFile,
-		MdsCurrent: mdsCurr,
-		MdsInitial: mdsInit}
+		ConfigFile:     cfgFile,
+		MdsPathCurrent: mdsCurr,
+		MdsPathInitial: mdsInit}
 }

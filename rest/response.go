@@ -27,6 +27,9 @@ import (
 	"github.com/pborman/uuid"
 )
 
+// HeaderRequestID is the header containing the request ID
+const HeaderRequestID = "VH-RequestID"
+
 // Response is the container for JSON data returned by the V1 API
 type Response struct {
 	// The unique identifier, assigned by the server for the request
@@ -139,7 +142,7 @@ func (r *Response) Write(status int, w http.ResponseWriter) error {
 		return fmt.Errorf("Failed to marshal response JSON: %v\n", err)
 	}
 
-	w.Header().Set("VH-RequestID", r.RequestID.String())
+	w.Header().Set(HeaderRequestID, r.RequestID.String())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, err = w.Write(body)

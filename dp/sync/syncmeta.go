@@ -231,18 +231,27 @@ func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 	// Map for which snapshot on initial has been updated
 	snapUpdated := make(map[snapshot.ID]int)
 
-	// Update current and initial with all conflicts
+	// Collect all snapshots needs to be updated first and then go to DB once in one batch update
+	var (
+		updatePairCur  []*metastore.SnapshotPair
+		updatePairInit []*metastore.SnapshotPair
+	)
+
 	for _, c := range conflicts {
-		_, err := s.Cur.UpdateSnapshot(c.Tgt, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = s.Init.UpdateSnapshot(c.Tgt, nil)
-		if err != nil {
-			return nil, err
-		}
-
+		updatePairCur = append(
+			updatePairCur,
+			&metastore.SnapshotPair{
+				Cur:  c.Tgt,
+				Init: nil,
+			},
+		)
+		updatePairInit = append(
+			updatePairInit,
+			&metastore.SnapshotPair{
+				Cur:  c.Tgt,
+				Init: nil,
+			},
+		)
 		snapUpdated[c.Tgt.ID] = 0
 	}
 
@@ -253,11 +262,24 @@ func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 		}
 
 		if !pair.Cur.Equals(pair.Init) {
-			_, err = s.Init.UpdateSnapshot(pair.Cur, nil)
-			if err != nil {
-				return nil, err
-			}
+			updatePairInit = append(
+				updatePairInit,
+				&metastore.SnapshotPair{
+					Cur:  pair.Cur,
+					Init: nil,
+				},
+			)
 		}
+	}
+
+	_, err = s.Cur.UpdateSnapshots(updatePairCur)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.Init.UpdateSnapshots(updatePairInit)
+	if err != nil {
+		return nil, err
 	}
 
 	return conflicts, nil

@@ -90,6 +90,11 @@ func Create(path securefilepath.SecureFilePath) (*Sqlite3Storage, error) {
 		return nil, err
 	}
 
+	err = configDB(db)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Sqlite3Storage{
 		path: path,
 		db:   db,
@@ -182,6 +187,25 @@ CREATE TABLE [volume] (
 	return nil
 }
 
+// Config DB as:
+//  - Only one client connects to the DB at the same time
+//  - Set timeout high (default is 5 seconds) so it will wait while there is a long operation.
+func configDB(db *sql.DB) error {
+	statements := []string{`
+PRAGMA locking_mode = EXCLUSIVE
+`, `
+PRAGMA busy_timeout = 36000000
+`,
+	}
+	for _, statement := range statements {
+		_, err := db.Exec(statement)
+		if err != nil {
+			return errors.New(err)
+		}
+	}
+	return nil
+}
+
 // Open returns a storage object backed by an existing SQLite3-based metadata
 // storage database at the given path or fails if there is no such database
 // there.
@@ -197,6 +221,11 @@ func Open(path securefilepath.SecureFilePath) (metastore.Client, error) {
 	db, err := sql.Open(sqlDriverName, "file://"+path.Path()+"?"+"_txlock="+TXLOCKING)
 	if err != nil {
 		return nil, errors.Errorf("Cannot create data-plane storage at %v: %v", path.Path(), err)
+	}
+
+	err = configDB(db)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Sqlite3Storage{
