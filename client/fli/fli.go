@@ -532,13 +532,13 @@ func handleZFSErr(err error) error {
 	switch err.(type) {
 	case *zfs.ErrZfsNotFound:
 		return errors.Errorf(`Missing ZFS kernel module
-Visit %s for instructions to install ZFS`, flockerHubRef)
+Visit %s for instructions to install ZFS`, zfsReferenceURL)
 	case *zfs.ErrZfsUtilsNotFound:
 		return errors.Errorf(`Missing ZFS utilities
-Visit %s for instructions to install ZFS utilities`, flockerHubRef)
+Visit %s for instructions to install ZFS utilities`, zfsReferenceURL)
 	case *zfs.ErrZpoolNotFound:
 		return errors.Errorf(`%s
-Visit https://clusterhq.com/ for instructions to create ZPOOL`, err.Error())
+Visit %s for instructions to create ZPOOL`, err.Error(), zfsReferenceURL)
 
 	}
 
@@ -558,11 +558,20 @@ func ShrinkUUIDs(UUID string) string {
 // Execute ...
 func Execute() {
 	os.MkdirAll(logDir, (os.ModeDir | 0755))
+	if _, err := os.Stat(logDir); err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
 
 	logFile := filepath.Join(logDir, "fli.log")
+	_, err := os.Stat(logFile)
+	if err != nil && os.IsExist(err) {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
 	fp, err := os.OpenFile(logFile, (os.O_CREATE | os.O_WRONLY | os.O_APPEND), 0666)
 	if err != nil {
-		fmt.Printf("Failed to set the log output file (%v)", logFile)
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}

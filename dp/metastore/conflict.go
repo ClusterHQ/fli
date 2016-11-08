@@ -24,26 +24,23 @@ import (
 
 type (
 	// ResolveStatus ..
-	ResolveStatus uint32
+	ResolveStatus int
 
-	// VSMetaConflict - array of these is used for
-	// reporting conflicts in volumeset metadata
+	// VSMetaConflict - array of these is used for reporting conflicts in volumeset metadata
 	VSMetaConflict struct {
 		Tgt  *volumeset.VolumeSet `json:"target"`
 		Cur  *volumeset.VolumeSet `json:"current"`
 		Init *volumeset.VolumeSet `json:"init"`
 	}
 
-	// SnapMetaConflict - array of these is used for
-	// reporting conflicts in snap metadata
+	// SnapMetaConflict - array of these is used for reporting conflicts in snap metadata
 	SnapMetaConflict struct {
 		Tgt  *snapshot.Snapshot `json:"target"`
 		Cur  *snapshot.Snapshot `json:"current"`
 		Init *snapshot.Snapshot `json:"init"`
 	}
 
-	// BranchMetaConflict - array of these is used
-	// for reporting conflicts in branch metadata
+	// BranchMetaConflict - array of these is used for reporting conflicts in branch metadata
 	BranchMetaConflict struct {
 		Tgt, Cur, Init *branch.Branch
 	}
@@ -62,12 +59,14 @@ type (
 )
 
 const (
-	// UseCurrent ...
-	UseCurrent ResolveStatus = 1
-	// UseTgtNoConflict ...
-	UseTgtNoConflict ResolveStatus = 2
-	// UseTgtConflict ...
-	UseTgtConflict ResolveStatus = 3
+	// NoAction = all three versions are the same, no action required
+	NoAction ResolveStatus = iota
+	// UseCurrent = current has changed while target and initial are not
+	UseCurrent
+	// UseTgtNoConflict = target changed while current and initial are not
+	UseTgtNoConflict
+	// UseTgtConflict = target and current both have changed
+	UseTgtConflict
 )
 
 // IsEmpty ...

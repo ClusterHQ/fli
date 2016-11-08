@@ -421,7 +421,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 			g = glob.MustCompile(volname)
 			for _, v := range vs {
 				// Find the volume name in every VolSet found
-				vols, err := mds.GetVolumes(v.ID)
+				vols, err := metastore.GetVolumes(mds, v.ID)
 				if err != nil {
 					return volFound, errors.New(err)
 				}
@@ -442,7 +442,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 			if isShrunkID {
 				for _, v := range vs {
 					// Find the volume name in every VolSet found
-					vols, err := mds.GetVolumes(v.ID)
+					vols, err := metastore.GetVolumes(mds, v.ID)
 					if err != nil {
 						// TODO: Handle error here and return fli error here
 						return volFound, errors.New(err)
@@ -455,7 +455,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 					}
 				}
 			} else {
-				vol, err := mds.GetVolume(volume.NewID(volname))
+				vol, err := metastore.GetVolume(mds, volume.NewID(volname))
 				if err != nil {
 					_, ok := err.(*metastore.ErrVolumeNotFound)
 					if !ok {
@@ -485,7 +485,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 				}
 			}
 		} else {
-			vol, err := mds.GetVolume(volume.NewID(search))
+			vol, err := metastore.GetVolume(mds, volume.NewID(search))
 			if err != nil {
 				_, ok := err.(*metastore.ErrVolumeNotFound)
 				if !ok {

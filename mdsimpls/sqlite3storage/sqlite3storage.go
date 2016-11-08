@@ -63,28 +63,21 @@ const TXLOCKING = "immediate"
 // Create makes a brand new SQLite3-based metadata storage database at the
 // given path or fails if something exists at that path already.
 func Create(path securefilepath.SecureFilePath) (*Sqlite3Storage, error) {
-	// TODO Fix the race condition
+	// TODO: Fix the race condition(multiple opens at the same time)
 	exists, err := path.Exists()
 	if err != nil {
-		return nil, err
+		return nil, errors.New(err)
 	}
+
 	if exists {
-		return nil, errors.Errorf("Cannot create SQLite3-based data plane storage at %v because something exists there already.", path.Path())
+		return nil, errors.Errorf("Cannot create MDS at %v because it already exists.", path.Path())
 	}
+
 	db, err := sql.Open(sqlDriverName, "file://"+path.Path()+"?"+"_txlock="+TXLOCKING)
 	if err != nil {
-		return nil, errors.Errorf("Cannot create SQLite3-based data plane storage at %s: %v", path.Path(), err)
+		return nil, errors.Errorf("Cannot create MDS at %s: %v", path.Path(), err)
 	}
-	// Avoid multiple connections to the database.  Primarily, this is
-	// interesting because it ensures all interactions happen over a single
-	// connection.  This is only necessary when testing against an
-	// in-memory database to which multiple connections cannot actually be
-	// established (each connection is to a new, empty database).  It may
-	// make more sense to somehow set up this state in the test suite but I
-	// don't see a simple way to do that right now.  Also, the anticipate
-	// usage patterns for this code, client-side dataplane work, don't
-	// obviously benefit from multiple connections anyway.
-	db.SetMaxOpenConns(1)
+
 	err = createSchema(db)
 	if err != nil {
 		return nil, err
@@ -101,7 +94,6 @@ func Create(path securefilepath.SecureFilePath) (*Sqlite3Storage, error) {
 	}, nil
 }
 
-// Note: Time stamp is stored as int64
 func createSchema(db *sql.DB) error {
 	statements := []string{`
 PRAGMA page_size = 4096
@@ -206,21 +198,21 @@ PRAGMA busy_timeout = 36000000
 	return nil
 }
 
-// Open returns a storage object backed by an existing SQLite3-based metadata
-// storage database at the given path or fails if there is no such database
-// there.
+// Open returns a storage object backed by an existing SQLite3-based metadata storage database at the given path or fails
+// if the DB is not found.
 func Open(path securefilepath.SecureFilePath) (metastore.Client, error) {
-	// TODO Fix the race condition
 	exists, err := path.Exists()
 	if err != nil {
-		return nil, err
+		return nil, errors.New(err)
 	}
+
 	if !exists {
-		return nil, errors.Errorf("Cannot open data-plane storage at %v because it does not exist.", path.Path())
+		return nil, errors.Errorf("Database %v not found.", path.Path())
 	}
+
 	db, err := sql.Open(sqlDriverName, "file://"+path.Path()+"?"+"_txlock="+TXLOCKING)
 	if err != nil {
-		return nil, errors.Errorf("Cannot create data-plane storage at %v: %v", path.Path(), err)
+		return nil, errors.Errorf("Cannot create MDS at %v: %v", path.Path(), err)
 	}
 
 	err = configDB(db)
@@ -234,12 +226,15 @@ func Open(path securefilepath.SecureFilePath) (metastore.Client, error) {
 	}, nil
 }
 
-// DeleteVolumeSet ...
+// DeleteVolumeSet implements metastore interface
 func (store *Sqlite3Storage) DeleteVolumeSet(id volumeset.ID) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -312,18 +307,19 @@ WHERE [volumeset_id] = ?
 			return errors.New(err)
 		}
 	}
+
 	return nil
 }
 
-// ImportVolumeSet ...
+// ImportVolumeSet implements metastore interface
 func (store *Sqlite3Storage) ImportVolumeSet(vs *volumeset.VolumeSet) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -362,7 +358,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	return err
 }
 
-// GetSnapshotIDs returns a list of snapshot IDs of a volume set.
+// GetSnapshotIDs implements metastore interface.
 func (store *Sqlite3Storage) GetSnapshotIDs(vsid volumeset.ID) ([]snapshot.ID, error) {
 	tx, err := store.db.Begin()
 	if err != nil {
@@ -374,7 +370,7 @@ func (store *Sqlite3Storage) GetSnapshotIDs(vsid volumeset.ID) ([]snapshot.ID, e
 	stmt := "SELECT [id] FROM [snapshot] WHERE [volumeset_id] = ?"
 	sel, err := tx.Prepare(stmt)
 	if err != nil {
-		return ids, errors.Errorf("GetSnapshots prepare query failed: %v", err)
+		return ids, errors.Errorf("GetSnapshotIDs prepare query failed: %v", err)
 	}
 	rows, err := sel.Query(vsid.String())
 	if err != nil {
@@ -403,11 +399,16 @@ func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapsho
 	}
 	defer tx.Rollback()
 
+	return getSnapshots(tx, q)
+}
+
+func getSnapshots(tx *sql.Tx, q snapshot.Query) ([]*snapshot.Snapshot, error) {
 	snaps := []*snapshot.Snapshot{}
 	statement := `
 	SELECT s.[volumeset_id], s.[id], [parent_id], [blob_id], [creation_time], [creator_username], [creator_uuid],
 	[owner_username], [owner_uuid], [size],
-	[last_modified_time], [depth], b.[tip], b.[name]
+	[last_modified_time], [depth], b.[tip], b.[name],
+	(SELECT count([id]) FROM [snapshot] WHERE [parent_id] = s.[id]) AS [numChild]
 	FROM [snapshot] s
 	LEFT JOIN [branch] b ON b.[volumeset_id] = s.[volumeset_id] AND b.[tip] = s.[id]
 	`
@@ -488,11 +489,11 @@ func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapsho
 			depth            int
 			tip              sql.NullString
 			branchName       sql.NullString
+			numChild         int
 		)
 		err = rows.Scan(
 			&vsid, &sid, &parentID, &blobid, &creationTime, &creatorName, &creatorUUID,
-			&ownerName, &ownerUUID, &size, &lastModifiedTime,
-			&depth, &tip, &branchName,
+			&ownerName, &ownerUUID, &size, &lastModifiedTime, &depth, &tip, &branchName, &numChild,
 		)
 
 		if err == sql.ErrNoRows {
@@ -522,6 +523,7 @@ func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapsho
 			Depth:            depth,
 			BlobID:           blob.NewID(blobid),
 			PrevBlobID:       blob.NewID(blobid),
+			NumChildren:      numChild,
 		}
 
 		if tip.Valid {
@@ -542,12 +544,6 @@ func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapsho
 		}
 		ss.Attrs = attr
 		ss.RetrieveKnownKeys()
-
-		numChildren, err := snapGetNumChildren(tx, ss.ID)
-		if err != nil {
-			return nil, err
-		}
-		ss.NumChildren = numChildren
 	}
 
 	return snaps, nil
@@ -711,25 +707,21 @@ func (store *Sqlite3Storage) GetTip(vsid volumeset.ID, branch string) (*snapshot
 	}
 
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	tip, err := getTip(tx, branch, vsid)
 	if err != nil {
 		return nil, err
 	}
+
 	if tip == nil {
 		return nil, &metastore.ErrBranchNotFound{}
 	}
-	return getSnapshot(tx, *tip)
+
+	return getSnapshotForRead(tx, *tip)
 }
 
 // GetBranches ...
@@ -739,6 +731,7 @@ func (store *Sqlite3Storage) GetBranches(q branch.Query) ([]*branch.Branch, erro
 		return nil, errors.New(err)
 	}
 	defer tx.Rollback()
+
 	var args []interface{}
 
 	statement := `
@@ -784,7 +777,7 @@ WHERE [volumeset_id] = ?
 		} else {
 			branchName = ""
 		}
-		snap, err := getSnapshot(tx, snapshot.NewID(tip))
+		snap, err := getSnapshotForRead(tx, snapshot.NewID(tip))
 		if err != nil {
 			return nil, err
 		}
@@ -857,22 +850,22 @@ WHERE [volumeset_id] = ? AND [name] = ?
 
 // ImportVolume ...
 func (store *Sqlite3Storage) ImportVolume(vol *volume.Volume) error {
-	var parent interface{}
-	if vol.BaseID != nil {
-		parent = vol.BaseID.String()
-	}
-
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
 	}()
+
+	var parent interface{}
+	if vol.BaseID != nil {
+		parent = vol.BaseID.String()
+	}
 
 	insVol, err := tx.Prepare(`
 INSERT INTO [volume] ([volumeset_id], [id], [parent_id], [mount_path], [creation_time], [size], [name]) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -905,6 +898,12 @@ INSERT INTO [volume] ([volumeset_id], [id], [parent_id], [mount_path], [creation
 
 // GetVolume ...
 func (store *Sqlite3Storage) GetVolume(vid volume.ID) (*volume.Volume, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
+
 	var (
 		parent       sql.NullString
 		vsid         string
@@ -914,18 +913,6 @@ func (store *Sqlite3Storage) GetVolume(vid volume.ID) (*volume.Volume, error) {
 		size         uint64
 		name         string
 	)
-
-	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
 
 	selVol, err := tx.Prepare(`
 SELECT [volumeset_id], [parent_id], [mount_path], [creation_time], [size], [name]
@@ -974,20 +961,19 @@ WHERE [id] = ?
 
 // DeleteVolume ...
 func (store *Sqlite3Storage) DeleteVolume(vid volume.ID) error {
-	var vsid string
-
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
 	}()
 
+	var vsid string
 	selVol, err := tx.Prepare(`
 SELECT [volumeset_id]
 FROM [volume]
@@ -1031,16 +1017,10 @@ DELETE FROM [volume] where [id] = ?
 // GetVolumes ...
 func (store *Sqlite3Storage) GetVolumes(vsid volumeset.ID) ([]*volume.Volume, error) {
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	secVols, err := tx.Prepare(`
 SELECT [volumeset_id], [id], [parent_id], [mount_path], [creation_time], [size], [name]
@@ -1112,19 +1092,40 @@ WHERE [volumeset_id] = ?
 }
 
 // UpdateSnapshots implements metastore interface
+// Assumption: Snapshots pair are sorted by snapshot ID in snapshot.AEC order.
 func (store *Sqlite3Storage) UpdateSnapshots(snaps []*metastore.SnapshotPair) ([]metastore.SnapMetaConflict, error) {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
 	}()
 
-	var conflicts []metastore.SnapMetaConflict
+	var (
+		ids       []snapshot.ID
+		conflicts []metastore.SnapMetaConflict
+	)
 	for _, snap := range snaps {
-		c, err := store.snapshotResolveConflict(tx, snap.Cur, snap.Init)
+		ids = append(ids, snap.Cur.ID)
+	}
+
+	snapsTgt, err := getSnapshotForWrite(tx, ids)
+	if err != nil {
+		return conflicts, nil
+	}
+
+	if len(snapsTgt) != len(snaps) {
+		return conflicts, errors.Errorf("Expecting %d snapshots on target, but read %d.",
+			len(snaps), len(snapsTgt))
+	}
+
+	for idx, snap := range snaps {
+		c, err := store.snapshotResolveConflict(tx, snapsTgt[idx], snap.Cur, snap.Init)
 		if err != nil {
 			return nil, err
 		}
@@ -1139,25 +1140,33 @@ func (store *Sqlite3Storage) UpdateSnapshots(snaps []*metastore.SnapshotPair) ([
 // UpdateSnapshot implements metastore interface
 func (store *Sqlite3Storage) UpdateSnapshot(snapCur, snapInit *snapshot.Snapshot) (metastore.SnapMetaConflict, error) {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return metastore.SnapMetaConflict{}, errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
 	}()
 
-	return store.snapshotResolveConflict(tx, snapCur, snapInit)
+	snapTgt, err := getSnapshotForWrite(tx, []snapshot.ID{snapCur.ID})
+	if err != nil {
+		return metastore.SnapMetaConflict{}, err
+	}
+
+	if len(snapTgt) != 1 {
+		return metastore.SnapMetaConflict{}, errors.Errorf("Expecting exactly one record, got %d", len(snapTgt))
+	}
+
+	return store.snapshotResolveConflict(tx, snapTgt[0], snapCur, snapInit)
 }
 
 // snapshotResolveConflict compares the three versions of a snapshot and decides what action to take(update,
 // do nothing, or return conflict)
 func (store *Sqlite3Storage) snapshotResolveConflict(tx *sql.Tx,
-	snapCur, snapInit *snapshot.Snapshot) (metastore.SnapMetaConflict, error) {
-	snapTgt, err := getSnapshot(tx, snapCur.ID)
-	if err != nil {
-		return metastore.SnapMetaConflict{}, err
-	}
+	snapTgt, snapCur, snapInit *snapshot.Snapshot) (metastore.SnapMetaConflict, error) {
 
 	if snapInit == nil {
 		return metastore.SnapMetaConflict{}, updateSnapshot(tx, snapCur)
@@ -1167,7 +1176,7 @@ func (store *Sqlite3Storage) snapshotResolveConflict(tx *sql.Tx,
 	switch status {
 	case metastore.UseCurrent:
 		return metastore.SnapMetaConflict{}, updateSnapshot(tx, snapCur)
-	case metastore.UseTgtConflict:
+	case metastore.UseTgtNoConflict, metastore.UseTgtConflict:
 		return metastore.SnapMetaConflict{Tgt: snapTgt, Cur: snapCur, Init: snapInit}, nil
 	}
 
@@ -1218,14 +1227,15 @@ WHERE [id] = ? AND [blob_id] = ?
 	// TODO: Check if the fields are actually need to be updated?
 	updateSnap, err := tx.Prepare(`
 UPDATE [snapshot]
-SET [last_modified_time] = ?
+SET [last_modified_time] = ?, [creator_username] = ?, [creator_uuid] = ?, [owner_username] = ?, [owner_uuid] = ?
 WHERE [id] = ?`)
 	if err != nil {
 		return errors.New(err)
 	}
 	defer updateSnap.Close()
 
-	result, err := updateSnap.Exec(snap.LastModifiedTime.UnixNano(), snap.ID.String())
+	result, err := updateSnap.Exec(snap.LastModifiedTime.UnixNano(), snap.CreatorName, snap.Creator,
+		snap.OwnerName, snap.Owner, snap.ID.String())
 	if err != nil {
 		return errors.New(err)
 	}
@@ -1265,12 +1275,12 @@ WHERE [id] = ?`)
 // UpdateVolume ...
 func (store *Sqlite3Storage) UpdateVolume(vol *volume.Volume) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -1319,14 +1329,11 @@ func (store *Sqlite3Storage) UpdateVolumeSet(
 	vsCur, vsInit *volumeset.VolumeSet) (metastore.VSMetaConflict, error) {
 	tx, err := store.db.Begin()
 	if err != nil {
-		return metastore.VSMetaConflict{}, err
+		return metastore.VSMetaConflict{}, errors.New(err)
 	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -1350,7 +1357,7 @@ func (store *Sqlite3Storage) UpdateVolumeSet(
 	switch status {
 	case metastore.UseCurrent:
 		return metastore.VSMetaConflict{}, updateVolumeSet(tx, vsCur)
-	case metastore.UseTgtConflict:
+	case metastore.UseTgtNoConflict, metastore.UseTgtConflict:
 		return metastore.VSMetaConflict{Tgt: vsTgt, Cur: vsCur, Init: vsInit}, nil
 	}
 
@@ -1420,12 +1427,12 @@ func (store *Sqlite3Storage) forkBranch(branchID branch.ID, branchName string,
 	}
 
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -1433,7 +1440,7 @@ func (store *Sqlite3Storage) forkBranch(branchID branch.ID, branchName string,
 
 	depth := 0
 	if snapshots[0].ParentID != nil {
-		parent, err := getSnapshot(tx, *snapshots[0].ParentID)
+		parent, err := getSnapshotForRead(tx, *snapshots[0].ParentID)
 		if err != nil {
 			return err
 		}
@@ -1483,18 +1490,18 @@ func (store *Sqlite3Storage) ExtendBranch(snapshots ...*snapshot.Snapshot) error
 	}
 
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
 	}()
 
-	parent, err := getSnapshot(tx, *snapshots[0].ParentID)
+	parent, err := getSnapshotForRead(tx, *snapshots[0].ParentID)
 	if err != nil {
 		return err
 	}
@@ -1529,7 +1536,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		dbParentID = sn.ParentID.String()
 	}
 
-	_, err = getSnapshot(tx, sn.ID)
+	_, err = getSnapshotForRead(tx, sn.ID)
 	if err != nil {
 		if _, ok := err.(*metastore.ErrSnapshotNotFound); !ok {
 			return err
@@ -1565,87 +1572,119 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	return nil
 }
 
-func getSnapshot(tx *sql.Tx, id snapshot.ID) (*snapshot.Snapshot, error) {
-	selectSnapshot, err := tx.Prepare(`
-SELECT [id], [parent_id], [volumeset_id], [blob_id], [creation_time], [creator_username], [creator_uuid], [owner_username], [owner_uuid],  [size], [last_modified_time], [depth]
-FROM [snapshot]
-WHERE [id] = ?
-`)
+func getSnapshotForRead(tx *sql.Tx, id snapshot.ID) (*snapshot.Snapshot, error) {
+	q := snapshot.Query{ID: id}
+	snaps, err := getSnapshots(tx, q)
 	if err != nil {
 		return nil, err
 	}
-	defer selectSnapshot.Close()
 
-	var (
-		vsid             string
-		sid              string
-		parentID         sql.NullString
-		blobid           string
-		creationTime     int64
-		creatorName      string
-		creatorUUID      string
-		ownerName        string
-		ownerUUID        string
-		size             uint64
-		parentIDPtr      *snapshot.ID
-		lastModifiedTime int64
-		depth            int
-	)
-	err = selectSnapshot.QueryRow(id.String()).Scan(
-		&sid, &parentID, &vsid, &blobid, &creationTime, &creatorName, &creatorUUID,
-		&ownerName, &ownerUUID, &size, &lastModifiedTime, &depth,
-	)
-	if err == sql.ErrNoRows {
+	if len(snaps) == 0 {
 		return nil, &metastore.ErrSnapshotNotFound{}
 	}
+
+	if len(snaps) != 1 {
+		return nil, errors.Errorf("Expected exactly one snapshot, but found %d\n", len(snaps))
+	}
+
+	return snaps[0], nil
+}
+
+// getSnapshotForWrite returns an array of snapshots sorted by the given IDs in ascending oder.
+// This is function is intended for callers that do update snapshot, it only returns the mutable fields
+// of a snapshot, non mutable fields like depth, IsTip, etc are not read to gain better performance.
+func getSnapshotForWrite(tx *sql.Tx, ids []snapshot.ID) ([]*snapshot.Snapshot, error) {
+	if len(ids) == 0 {
+		return nil, errors.New("Expect at least one snapshot ID.")
+	}
+
+	snaps := []*snapshot.Snapshot{}
+	statement := `
+	SELECT [volumeset_id], [id], [parent_id], [blob_id], [creation_time], [creator_username], [creator_uuid],
+	[owner_username], [owner_uuid], [size], [last_modified_time]
+	FROM [snapshot] WHERE [id] IN (
+	`
+	for idx, id := range ids {
+		if idx != 0 {
+			statement += ", "
+		}
+		statement += "\"" + id.String() + "\""
+	}
+	statement += ") ORDER BY id " + volumeset.ASC
+
+	selSnaps, err := tx.Prepare(statement)
 	if err != nil {
-		return nil, errors.New(err)
+		return nil, errors.Errorf("GetSnapshots prepare query failed: %v", err)
 	}
 
-	if parentID.Valid {
-		pid := snapshot.NewID(parentID.String)
-		parentIDPtr = &pid
-	}
-
-	attr, err := getAttrs(tx, vsid, id.String())
+	rows, err := selSnaps.Query()
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("Failed to query database with statement '%s': %v", statement, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			vsid             string
+			sid              string
+			parentID         sql.NullString
+			blobid           string
+			creationTime     int64
+			creatorName      string
+			creatorUUID      string
+			ownerName        string
+			ownerUUID        string
+			size             uint64
+			parentIDPtr      *snapshot.ID
+			lastModifiedTime int64
+		)
+		err = rows.Scan(
+			&vsid, &sid, &parentID, &blobid, &creationTime, &creatorName, &creatorUUID,
+			&ownerName, &ownerUUID, &size, &lastModifiedTime,
+		)
+
+		if err == sql.ErrNoRows {
+			return nil, &metastore.ErrSnapshotNotFound{}
+		}
+
+		if err != nil {
+			return nil, errors.New(err)
+		}
+
+		if parentID.Valid {
+			pid := snapshot.NewID(parentID.String)
+			parentIDPtr = &pid
+		}
+
+		s := snapshot.Snapshot{
+			VolSetID:         volumeset.NewID(vsid),
+			ID:               snapshot.NewID(sid),
+			ParentID:         parentIDPtr,
+			CreationTime:     time.Unix(0, creationTime),
+			LastModifiedTime: time.Unix(0, lastModifiedTime),
+			Creator:          creatorUUID,
+			CreatorName:      creatorName,
+			Owner:            ownerUUID,
+			OwnerName:        ownerName,
+			Size:             size,
+			BlobID:           blob.NewID(blobid),
+			PrevBlobID:       blob.NewID(blobid),
+		}
+
+		snaps = append(snaps, &s)
 	}
 
-	snapid := snapshot.NewID(sid)
-	numChildren, err := snapGetNumChildren(tx, snapid)
-	if err != nil {
-		return nil, err
+	// Update meta fields
+	for _, ss := range snaps {
+		attr, err := getAttrs(tx, ss.VolSetID.String(), ss.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		ss.Attrs = attr
+		ss.RetrieveKnownKeys()
 	}
 
-	volsetid := volumeset.NewID(vsid)
-	isTip, branchName, err := getTipBySnapshotID(tx, volsetid, snapid)
-	if err != nil {
-		return nil, err
-	}
-
-	snap := &snapshot.Snapshot{
-		VolSetID:         volsetid,
-		ID:               snapid,
-		ParentID:         parentIDPtr,
-		Attrs:            attr,
-		CreationTime:     time.Unix(0, creationTime),
-		LastModifiedTime: time.Unix(0, lastModifiedTime),
-		Creator:          creatorUUID,
-		CreatorName:      creatorName,
-		Owner:            ownerUUID,
-		OwnerName:        ownerName,
-		Size:             size,
-		Depth:            depth,
-		BlobID:           blob.NewID(blobid),
-		PrevBlobID:       blob.NewID(blobid),
-		NumChildren:      numChildren,
-		IsTip:            isTip,
-		BranchName:       branchName,
-	}
-	snap.RetrieveKnownKeys()
-
-	return snap, nil
+	return snaps, nil
 }
 
 // getTip looks up a tip by a branch's name, returns nil if tip does not exist
@@ -1670,35 +1709,6 @@ WHERE [volumeset_id] = ? AND [name] = ?
 	}
 	tipS := snapshot.NewID(tip)
 	return &tipS, nil
-}
-
-// getTipBySnapshotID looks up a tip by a snapshot's ID, returns true and the branch's name if the snapshot is a tip
-func getTipBySnapshotID(tx *sql.Tx, vsid volumeset.ID, snapid snapshot.ID) (bool, string, error) {
-	selectTip, err := tx.Prepare(`
-SELECT [name]
-FROM [branch]
-WHERE [volumeset_id] = ? AND [tip] = ?
-`)
-	if err != nil {
-		return false, "", errors.New(err)
-	}
-	defer selectTip.Close()
-
-	var name sql.NullString
-	err = selectTip.QueryRow(vsid.String(), snapid.String()).Scan(&name)
-	if err == sql.ErrNoRows {
-		return false, "", nil
-	}
-
-	if err != nil {
-		return false, "", errors.New(err)
-	}
-
-	if name.Valid {
-		return true, name.String, nil
-	}
-
-	return true, "", nil
 }
 
 func getAttrs(tx *sql.Tx, vsid string, id string) (attrs.Attrs, error) {
@@ -1883,16 +1893,10 @@ VALUES (?, ?, ?, ?)
 // NumVolumes ...
 func (store *Sqlite3Storage) NumVolumes(snapid snapshot.ID) (int, error) {
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return 0, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	numVolumes, err := snapGetNumVolumes(tx, snapid)
 	if err != nil {
@@ -1905,16 +1909,10 @@ func (store *Sqlite3Storage) NumVolumes(snapid snapshot.ID) (int, error) {
 // NumChildren ...
 func (store *Sqlite3Storage) NumChildren(snapid snapshot.ID) (int, error) {
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return 0, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	numChildren, err := snapGetNumChildren(tx, snapid)
 	if err != nil {
@@ -1927,12 +1925,12 @@ func (store *Sqlite3Storage) NumChildren(snapid snapshot.ID) (int, error) {
 // DeleteSnapshots ...
 func (store *Sqlite3Storage) DeleteSnapshots(snaps []*snapshot.Snapshot, tip *snapshot.Snapshot) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2063,12 +2061,12 @@ WHERE [parent_id] = ?
 // ImportBush ...
 func (store *Sqlite3Storage) ImportBush(b *bush.Bush) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2097,22 +2095,16 @@ VALUES (?, ?, ?)
 
 // GetBush ...
 func (store *Sqlite3Storage) GetBush(root snapshot.ID) (*bush.Bush, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
+
 	var (
 		vsid string
 		dsid int
 	)
-
-	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
 
 	sel, err := tx.Prepare(`
 SELECT [volumeset_id], [dsid]
@@ -2142,12 +2134,12 @@ WHERE [id] = ?
 // DeleteBush ...
 func (store *Sqlite3Storage) DeleteBush(root snapshot.ID) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2176,12 +2168,12 @@ WHERE [id] = ?
 // SetVolumeSetSize ...
 func (store *Sqlite3Storage) SetVolumeSetSize(vsid volumeset.ID, size uint64) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2218,12 +2210,12 @@ UPDATE [volumeset] SET [size] = ? WHERE [id] = ?
 // Add ...
 func (store *Sqlite3Storage) Add(srv *datasrvstore.Server) (*datasrvstore.Server, error) {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2274,21 +2266,16 @@ WHERE [url] = ?
 
 // Get ...
 func (store *Sqlite3Storage) Get(id int) (*datasrvstore.Server, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
+
 	var (
 		url     string
 		current bool
 	)
-	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
 
 	sel, err := tx.Prepare(`
 SELECT [url], [current]
@@ -2318,16 +2305,10 @@ WHERE [id] = ?
 // All ...
 func (store *Sqlite3Storage) All() ([]*datasrvstore.Server, error) {
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	sel, err := tx.Prepare(`
 SELECT [id], [url], [current]
@@ -2372,12 +2353,12 @@ ORDER BY [id] ASC
 // SetCurrent ...
 func (store *Sqlite3Storage) SetCurrent(id int) error {
 	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
 	defer func() {
 		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
+			tx.Commit()
 		} else {
 			tx.Rollback()
 		}
@@ -2437,16 +2418,10 @@ func (store *Sqlite3Storage) SetCurrent(id int) error {
 // GetCurrent ...
 func (store *Sqlite3Storage) GetCurrent() (*datasrvstore.Server, error) {
 	tx, err := store.db.Begin()
-	defer func() {
-		if err == nil {
-			err = tx.Commit()
-			if err != nil {
-				err = errors.New(err)
-			}
-		} else {
-			tx.Rollback()
-		}
-	}()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
 
 	sel, err := tx.Prepare(`
 SELECT [id], [url]

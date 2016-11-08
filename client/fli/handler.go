@@ -40,6 +40,7 @@ import (
 	"github.com/ClusterHQ/fli/protocols"
 	"github.com/ClusterHQ/fli/securefilepath"
 	"github.com/ClusterHQ/fli/vh/cauthn"
+	"github.com/pborman/uuid"
 )
 
 // Handler ...
@@ -168,7 +169,7 @@ func (c *Handler) Clone(attributes string, full bool, args []string) (CmdOutput,
 			return cmdOut, err
 		}
 
-		if err := mds.UpdateVolume(vol); err != nil {
+		if err := metastore.UpdateVolume(mds, vol); err != nil {
 			return cmdOut, err
 		}
 
@@ -323,7 +324,7 @@ func (c *Handler) Create(attributes string, full bool, args []string) (CmdOutput
 			return cmdOut, err
 		}
 
-		if err := mds.UpdateVolume(vol); err != nil {
+		if err := metastore.UpdateVolume(mds, vol); err != nil {
 			return cmdOut, err
 		}
 
@@ -442,12 +443,13 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 	volsets := []*volumeset.VolumeSet{}
 
 	if all {
-		volsets, err = FindVolumesets(mdsCurr, "")
+		volsets, err = metastore.GetVolumeSets(mdsCurr, volumeset.Query{})
 		if err != nil {
-			_, ok := err.(*ErrVolSetNotFound)
-			if !ok {
-				return cmdOut, err
-			}
+			return cmdOut, err
+		}
+
+		if len(volsets) == 0 {
+			return cmdOut, errors.New("No volumesets found")
 		}
 	} else {
 		volsetsL, err := FindVolumesets(mdsCurr, volsetName)
@@ -481,10 +483,10 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 				volsets = append(volsets, rVs)
 			}
 		}
-	}
 
-	if len(volsets) == 0 {
-		return cmdOut, ErrVolSetNotFound{Name: volsetName}
+		if len(volsets) == 0 {
+			return cmdOut, ErrVolSetNotFound{Name: volsetName}
+		}
 	}
 
 	if len(volsets) > 1 {
@@ -778,7 +780,7 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 				volsetFound[0].Description = description
 			}
 
-			if _, err := mds.UpdateVolumeSet(volsetFound[0], nil); err != nil {
+			if err := metastore.UpdateVolumeSet(mds, volsetFound[0]); err != nil {
 				return cmdOut, err
 			}
 
@@ -796,10 +798,10 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 				snapFound[0].Attrs = fAttrs
 			}
 			if description != "" {
-				volsetFound[0].Description = description
+				snapFound[0].Description = description
 			}
 
-			if _, err := mds.UpdateSnapshot(snapFound[0], nil); err != nil {
+			if err := metastore.UpdateSnapshot(mds, snapFound[0]); err != nil {
 				return cmdOut, err
 			}
 
@@ -815,7 +817,7 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 				return cmdOut, err
 			}
 
-			if err := mds.RenameBranch(brFound[0].Tip.VolSetID, brFound[0].Name, name); err != nil {
+			if err := metastore.RenameBranch(mds, brFound[0].Tip.VolSetID, brFound[0].Name, name); err != nil {
 				return cmdOut, err
 			}
 
@@ -836,7 +838,7 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 				return cmdOut, ErrInvalidArgs{}
 			}
 
-			if err := mds.UpdateVolume(volFound[0]); err != nil {
+			if err := metastore.UpdateVolume(mds, volFound[0]); err != nil {
 				return cmdOut, err
 			}
 		}
@@ -1220,12 +1222,12 @@ func (c *Handler) Config(url string, token string, offline bool, args []string) 
 
 	if !offline {
 		if c.CfgParams.FlockerHubURL == "" {
-			return cmdOut, errors.New(`FlockerHub URL is not set.
+			return cmdOut, errors.New(`FlockerHub URL is not configured.
 To skip URL validation use --offline option`)
 		}
 
 		if c.CfgParams.AuthTokenFile == "" {
-			return cmdOut, errors.New(`Authentication token file is not set.
+			return cmdOut, errors.New(`FLockerHub URL validation failed, authentication token file is not configured.
 To skip URL validation use --offline option`)
 		}
 
@@ -1234,7 +1236,10 @@ To skip URL validation use --offline option`)
 			return cmdOut, err
 		}
 
-		_, err = fhMds.GetVolumeSets(volumeset.Query{})
+		// Note: This is to make sure VH is reachable
+		_, err = metastore.GetVolumeSets(fhMds, volumeset.Query{
+			ID: volumeset.NewID(uuid.New()),
+		})
 		if err != nil {
 			return cmdOut, err
 		}

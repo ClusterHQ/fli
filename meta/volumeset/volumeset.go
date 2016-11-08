@@ -151,14 +151,15 @@ func (vs *VolumeSet) Copy() *VolumeSet {
 	return &volset
 }
 
-//MetaEqual compares two volume sets for equality.
+// MetaEqual compares two volume sets for equality.
 func (vs *VolumeSet) MetaEqual(that *VolumeSet) bool {
 	return (that != nil &&
 		vs.Name == that.Name &&
 		vs.Prefix == that.Prefix &&
 		vs.Description == that.Description &&
 		vs.ID.Equals(that.ID) &&
-		vs.Owner == that.Owner && //ignore OwnerUsername because we assume it matches owner uuid.
+		vs.Creator == that.Creator &&
+		vs.Owner == that.Owner &&
 		reflect.DeepEqual(vs.Attrs, that.Attrs))
 }
 

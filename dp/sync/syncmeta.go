@@ -34,72 +34,8 @@ type MetaConflicts struct {
 	BrC []meta.BranchMetaConflict
 }
 
-//MetaPushVS - used with 3 stores. Conflict resolution is done.
-func MetaPushVS(s meta.MdsTriplet, vsid volumeset.ID) (MetaConflicts, error) {
-	return oneWaySyncCommonVolSet(s, vsid)
-}
-
-//MetaPullVS - used with 2 stores. No conflict resolution
-func MetaPullVS(s meta.MdsTuple, vsid volumeset.ID) (MetaConflicts, error) {
-	return oneWaySyncCommonVolSet(meta.MdsTriplet{Tgt: s.Tgt, Cur: s.Cur, Init: nil}, vsid)
-}
-
-// volSetExistsOnBoth returns true if the volume set exists on both MDS stores
-func volSetExistsOnBoth(s1, s2 metastore.Syncable, vsid volumeset.ID) (bool, error) {
-	_, err := metastore.GetVolumeSet(s1, vsid)
-	if err != nil {
-		if _, ok := err.(*metastore.ErrVolumeSetNotFound); ok {
-			return false, nil
-		}
-		return false, err
-	}
-
-	_, err = metastore.GetVolumeSet(s2, vsid)
-	if err != nil {
-		if _, ok := err.(*metastore.ErrVolumeSetNotFound); ok {
-			return false, nil
-		}
-		return false, err
-	}
-
-	return true, nil
-}
-
-// oneWaySyncCommonVolSet syncs the meta data of objects(volume set, snapshot, branch) that exist on both source and
-// target.
-func oneWaySyncCommonVolSet(s meta.MdsTriplet, vsid volumeset.ID) (MetaConflicts, error) {
-	var (
-		vsMetaConflicts     []meta.VSMetaConflict
-		snapMetaConflicts   []meta.SnapMetaConflict
-		branchMetaConflicts []meta.BranchMetaConflict
-	)
-
-	common, err := volSetExistsOnBoth(s.Cur, s.Tgt, vsid)
-	if err != nil || common == false {
-		return MetaConflicts{}, err
-	}
-
-	vsMetaConflicts, err = updateTgtVSMeta(s, vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	snapMetaConflicts, err = updateTgtSnapMeta(s, vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	branchMetaConflicts, err = updateTgtBranchMeta(s, vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	return MetaConflicts{VsC: vsMetaConflicts,
-		SnC: snapMetaConflicts, BrC: branchMetaConflicts}, nil
-}
-
-// updateTgtVSMeta updates meta data of a volumeset using the three way sync
-func updateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflict, error) {
+// UpdateTgtVSMeta updates meta data of a volumeset using the three way sync
+func UpdateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflict, error) {
 	var (
 		vsCur, vsInit *volumeset.VolumeSet
 		err           error
@@ -145,8 +81,8 @@ func updateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflic
 	return cnfl, nil
 }
 
-// udpates the metadata of the snapshots common between source and target
-func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaConflict, error) {
+// UpdateTgtSnapMeta upates the metadata of the snapshots common between source and target
+func UpdateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaConflict, error) {
 	// Note: There is different cases for meta sync:
 	//       1. Source and target are quiet different in term of snapshots.
 	//       2. Source and target largely have the same snapshots.
@@ -272,20 +208,25 @@ func updateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 		}
 	}
 
-	_, err = s.Cur.UpdateSnapshots(updatePairCur)
-	if err != nil {
-		return nil, err
+	if len(updatePairCur) != 0 {
+		_, err = s.Cur.UpdateSnapshots(updatePairCur)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	_, err = s.Init.UpdateSnapshots(updatePairInit)
-	if err != nil {
-		return nil, err
+	if len(updatePairInit) != 0 {
+		_, err = s.Init.UpdateSnapshots(updatePairInit)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return conflicts, nil
 }
 
-func updateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMetaConflict, error) {
+// UpdateTgtBranchMeta updates branch meta data
+func UpdateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMetaConflict, error) {
 	// TODO: to be implemented
 	return []meta.BranchMetaConflict{}, nil
 }
@@ -307,6 +248,9 @@ func updateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMet
 ************************************************************************************************/
 func CheckVSConflict(vsTgt, vsCur, vsInit *volumeset.VolumeSet) metastore.ResolveStatus {
 	if vsCur.MetaEqual(vsInit) {
+		if vsCur.MetaEqual(vsTgt) {
+			return meta.NoAction
+		}
 		return meta.UseTgtNoConflict
 	}
 
@@ -325,7 +269,7 @@ func CheckVSConflict(vsTgt, vsCur, vsInit *volumeset.VolumeSet) metastore.Resolv
 func CheckSnapConflict(snapTgt, snapCur, snapInit *snapshot.Snapshot) metastore.ResolveStatus {
 	if snapCur.Equals(snapInit) {
 		if snapCur.Equals(snapTgt) {
-			return meta.UseTgtNoConflict
+			return meta.NoAction
 		}
 		return meta.UseTgtNoConflict
 	}
@@ -349,6 +293,9 @@ func (c *MetaConflicts) Report() {
 	}
 
 	for _, v := range c.VsC {
+		if v.Cur.MetaEqual(v.Init) || v.Cur.MetaEqual(v.Tgt) {
+			continue
+		}
 		log.Println("Volume set conflict: ")
 		log.Println("  Initial version:", v.Init)
 		log.Println("  Current version (overwritten by target one): ", v.Cur)
@@ -356,21 +303,33 @@ func (c *MetaConflicts) Report() {
 	}
 
 	for _, s := range c.SnC {
+		if s.Cur.Equals(s.Init) || s.Cur.Equals(s.Tgt) {
+			continue
+		}
 		log.Println("Snapshot conflict: ")
 		log.Println("  Initial version:", s.Init)
 		log.Println("  Current version (overwritten by target one): ", s.Cur)
 		log.Println("  Target version:", s.Tgt)
 	}
 
-	for _, b := range c.BrC {
-		log.Println("Branch conflict: ")
-		log.Println("  Initial version:", b.Init)
-		log.Println("  Current version (overwritten by target one): ", b.Cur)
-		log.Println("  Target version:", b.Tgt)
-	}
+	// TODO: Branch conflicts
 }
 
-// HasConflicts ...
+// HasConflicts returns true if there are conflicts.
+// COnflicts if current == initial && target != current
 func (c *MetaConflicts) HasConflicts() bool {
-	return (len(c.VsC)+len(c.SnC)+len(c.BrC) != 0)
+	for _, v := range c.VsC {
+		if !v.Cur.MetaEqual(v.Init) && !v.Cur.MetaEqual(v.Tgt) {
+			return true
+		}
+	}
+
+	for _, s := range c.SnC {
+		if !s.Cur.Equals(s.Init) && !s.Cur.Equals(s.Tgt) {
+			return true
+		}
+	}
+
+	// TODO: Branch conflicts
+	return false
 }

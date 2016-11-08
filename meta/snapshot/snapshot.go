@@ -190,6 +190,14 @@ func (sn *Snapshot) Equals(that *Snapshot) bool {
 		return false
 	}
 
+	if sn.Owner != that.Owner {
+		return false
+	}
+
+	if sn.Creator != that.Creator {
+		return false
+	}
+
 	// Let nil compare equal to an empty description.
 	empty := len(sn.Attrs) == 0 && len(that.Attrs) == 0
 	if !empty && !reflect.DeepEqual(sn.Attrs, that.Attrs) {
@@ -204,9 +212,10 @@ func (sn *Snapshot) Copy() *Snapshot {
 	if sn == nil {
 		return nil
 	}
-	volset := *sn
-	volset.Attrs = sn.Attrs.Copy()
-	return &volset
+
+	s := *sn
+	s.Attrs = sn.Attrs.Copy()
+	return &s
 }
 
 // Matches ..
@@ -286,6 +295,10 @@ func (q Query) Validate() error {
 
 	if !q.ID.IsNilID() && (len(q.IDs) != 0) {
 		return errors.New("Cannot query by ID and by IDs (list) at the same time")
+	}
+
+	if q.ID.IsNilID() && (len(q.IDs) == 0) && q.VolSetID.IsNilID() {
+		return errors.New("Volumeset ID is required")
 	}
 
 	return nil

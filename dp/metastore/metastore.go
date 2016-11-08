@@ -564,3 +564,39 @@ func GetSnapshotsByBranch(mds Syncable, q branch.Query) ([]*snapshot.Snapshot, e
 
 	return snaps, nil
 }
+
+// UpdateVolumeSet calls MDS's update volume set, it might update some of the volume set's field before
+// calling, for example, set volume set's last motified time to current time.
+func UpdateVolumeSet(mds Syncable, vs *volumeset.VolumeSet) error {
+	vs.LastModifiedTime = time.Now()
+	_, err := mds.UpdateVolumeSet(vs, nil)
+	return err
+}
+
+// UpdateSnapshot calls MDS's update snapshot, it might update some of the snapshott's field before
+// calling, for example, set last motified time to current time.
+func UpdateSnapshot(mds Syncable, snap *snapshot.Snapshot) error {
+	snap.LastModifiedTime = time.Now()
+	_, err := mds.UpdateSnapshot(snap, nil)
+	return err
+}
+
+// RenameBranch wraps the MDS's rename name branch
+func RenameBranch(mds Store, vsid volumeset.ID, oldName, newName string) error {
+	return mds.RenameBranch(vsid, oldName, newName)
+}
+
+// UpdateVolume calls MDS client's update volume
+func UpdateVolume(mds Client, v *volume.Volume) error {
+	return mds.UpdateVolume(v)
+}
+
+// GetVolume calls MDS client's update volume
+func GetVolume(mds Client, vid volume.ID) (*volume.Volume, error) {
+	return mds.GetVolume(vid)
+}
+
+// GetVolumes calls MDS client's update volumes
+func GetVolumes(mds Client, vsid volumeset.ID) ([]*volume.Volume, error) {
+	return mds.GetVolumes(vsid)
+}

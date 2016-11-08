@@ -291,68 +291,24 @@ func PushMetadata(source metastore.Syncable, target metastore.Syncable, vsid vol
 	return pushVolumeSet(source, target, vsid)
 }
 
-// MetadataSync syncs the volumeset between the metadata stores. First it bring in new objects,
-// then resolves the common meta information.
+// MetadataSync syncs the volumeset between the metadata stores.
+// 1. Push new snapshots from current to target
+// 2. Pull new snapshots from target to current
+// 3. Pull new snapshots from current to initial(including locally newly created and pulled from target)
+// 4. Sync meta data including both existing and new among all three stores. This is done after new snapshots
+//    are synced first because during sync, target might change some of the meta fields, for example,
+//    creator, owner, etc.
 func MetadataSync(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumeset.ID) (MetaConflicts, error) {
-	log.Println("Syncing meta data of existing objects ...")
-	conflicts, err := metadataSyncCommon(storeTgt, storeCur, storeInit, vsid)
-	if err != nil || conflicts.HasConflicts() {
-		return conflicts, err
-	}
-
 	log.Println("Syncing meta data of new objects ...")
-	err = metadataSyncNew(storeTgt, storeCur, vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	// Bring all the new objects within vs from cur to init
-	log.Println("Syncing meta data locally ...")
-	err = PushMetadata(storeCur, storeInit, vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	return MetaConflicts{}, nil
-}
-
-func metadataSyncCommon(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumeset.ID) (MetaConflicts, error) {
-	common, err := volSetExistsOnBoth(storeTgt, storeCur, vsid)
-	if err != nil || !common {
-		return MetaConflicts{}, err
-	}
-
-	// If the initial db does not have the vsid, then this was a new vs we just created
-	// and it should have been just imported, so no conflicts should exist.
-	_, err = metastore.GetVolumeSet(storeInit, vsid)
-	if err != nil {
-		if _, ok := err.(*metastore.ErrVolumeSetNotFound); ok {
-			return MetaConflicts{}, nil
-		}
-		return MetaConflicts{}, err
-	}
-
-	cPushVH, err := MetaPushVS(metastore.MdsTriplet{
-		Tgt:  storeTgt,
-		Cur:  storeCur,
-		Init: storeInit},
-		vsid)
-	if err != nil {
-		return MetaConflicts{}, err
-	}
-
-	return cPushVH, nil
-}
-
-// metadataSyncNew syncs the volumeset between cur and tgt metadata stores. If the volumeset doesn't exist
-// This is a two way sync, after the call, both meta data stores have the same meta data of the given volumeset.
-func metadataSyncNew(storeTgt, storeCur metastore.Syncable, vsid volumeset.ID) error {
-	var tgtNotFound, curNotFound bool
+	var (
+		tgtNotFound bool
+		curNotFound bool
+	)
 
 	_, errTgt := metastore.GetVolumeSet(storeTgt, vsid)
 	if errTgt != nil {
 		if _, ok := errTgt.(*metastore.ErrVolumeSetNotFound); !ok {
-			return errTgt
+			return MetaConflicts{}, errTgt
 		}
 
 		tgtNotFound = true
@@ -361,51 +317,72 @@ func metadataSyncNew(storeTgt, storeCur metastore.Syncable, vsid volumeset.ID) e
 	_, errCur := metastore.GetVolumeSet(storeCur, vsid)
 	if errCur != nil {
 		if _, ok := errCur.(*metastore.ErrVolumeSetNotFound); !ok {
-			return errCur
+			return MetaConflicts{}, errCur
 		}
 
 		curNotFound = true
 	}
 
-	// volumeset-id not found in neither mds, err
+	// Volumeset-id not found in neither mds, err
 	if tgtNotFound && curNotFound {
-		return errors.Errorf("VolumeSet (%s) not found anywhere.", vsid.String())
+		return MetaConflicts{}, errors.Errorf("VolumeSet (%s) not found anywhere.", vsid.String())
 	}
 
 	if errCur == nil {
 		log.Println("Pushing meta data to remote ...")
-		// Store Cur has it, push from Cur to Tgt
 		err := PushMetadata(storeCur, storeTgt, vsid)
 		if err != nil {
-			return err
-		}
-
-		// Upon creation, target could have tweaked out some fields on its own.
-		// if it did, bring update those back in the current db
-		if tgtNotFound {
-			_, err = MetaPullVS(metastore.MdsTuple{
-				Tgt: storeCur, Cur: storeTgt},
-				vsid)
-			if err != nil {
-				return err
-			}
+			return MetaConflicts{}, err
 		}
 	}
 
 	if errTgt == nil {
-		// update Tgt because it could have been updated when syncing between Cur->Tgt
 		_, err := metastore.GetVolumeSet(storeTgt, vsid)
 		if err != nil {
-			return err
+			return MetaConflicts{}, err
 		}
 
-		// Store Tgt has it, push from Tgt to Cur
 		log.Println("Pulling meta data from remote ...")
 		err = PushMetadata(storeTgt, storeCur, vsid)
 		if err != nil {
-			return err
+			return MetaConflicts{}, err
 		}
 	}
 
-	return nil
+	// Bring all the new objects within vs from cur to init
+	log.Println("Syncing meta data locally ...")
+	err := PushMetadata(storeCur, storeInit, vsid)
+	if err != nil {
+		return MetaConflicts{}, err
+	}
+
+	log.Println("Syncing meta data of existing objects ...")
+	s := metastore.MdsTriplet{
+		Tgt:  storeTgt,
+		Cur:  storeCur,
+		Init: storeInit,
+	}
+
+	vsMetaConflicts, err := UpdateTgtVSMeta(s, vsid)
+	if err != nil {
+		return MetaConflicts{}, err
+	}
+
+	snapMetaConflicts, err := UpdateTgtSnapMeta(s, vsid)
+	if err != nil {
+		return MetaConflicts{}, err
+	}
+
+	branchMetaConflicts, err := UpdateTgtBranchMeta(s, vsid)
+	if err != nil {
+		return MetaConflicts{}, err
+	}
+
+	conflicts := MetaConflicts{
+		VsC: vsMetaConflicts,
+		SnC: snapMetaConflicts,
+		BrC: branchMetaConflicts,
+	}
+
+	return conflicts, nil
 }
