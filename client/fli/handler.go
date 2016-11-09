@@ -448,6 +448,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			return cmdOut, err
 		}
 
+		// at this point there could be more than one volumeset
 		if len(volsets) == 0 {
 			return cmdOut, errors.New("No volumesets found")
 		}
@@ -484,29 +485,31 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			}
 		}
 
+		// At this point, there should only be a single volumeset
 		if len(volsets) == 0 {
 			return cmdOut, ErrVolSetNotFound{Name: volsetName}
+		} else if len(volsets) > 1 {
+			cmdOut.Op = append(cmdOut.Op,
+				Result{Str: "Ambigous matches found for - " + volsetName,
+					Tab: volumesetTable(0, full, volsets),
+				},
+			)
 		}
 	}
 
-	if len(volsets) > 1 {
-		cmdOut.Op = append(cmdOut.Op,
-			Result{Str: "Ambigous matches found for - " + volsetName,
-				Tab: volumesetTable(0, full, volsets),
-			},
-		)
-	} else {
+	for _, volset := range volsets {
 		mdsInit, err := c.getMdsInitial()
 		if err != nil {
 			return cmdOut, err
 		}
 
-		conflicts, err := sync.MetadataSync(fhMds, mdsCurr, mdsInit, volsets[0].ID)
+		conflicts, err := sync.MetadataSync(fhMds, mdsCurr, mdsInit, volset.ID)
 		if err != nil {
 			return cmdOut, err
 		}
 
 		if conflicts.HasConflicts() {
+			cmdOut.Op = append(cmdOut.Op, Result{Str: fmt.Sprintf("Volumeset  %v has conflicts", volset.ID.String())})
 			for _, v := range conflicts.VsC {
 				res := Result{}
 				res.Str = "VolumeSet conflict:"

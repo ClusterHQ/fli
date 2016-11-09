@@ -139,8 +139,14 @@ func (b blobDiff) DownloadBlobDiff(vsid volumeset.ID, base blob.ID, t string, ds
 
 // getHomeDir gets the full path of the current user's home dir, if unable to fetch the user home dir path then
 // returns alias to home dir "~"
+// We first consult $HOME which could be overriden for various purposes like testing.
+// If $HOME is not set, then we go for the user database.
 func getHomeDir() string {
-	dir := "~"
+	dir := os.Getenv("HOME")
+	if dir != "" {
+		return dir
+	}
+	dir = "~"
 	u, err := user.Current()
 	if err == nil {
 		dir = u.HomeDir

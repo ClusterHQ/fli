@@ -1744,6 +1744,8 @@ WHERE [volumeset_id] = ? AND [id] = ?
 	return attr, nil
 }
 
+// Note: Tried with insert ... values ((k,v), (k,v) ...), didn't see performance gain in sqlite3.
+// Used FLI to create 1,000 snapshots and 200 key/value pairs each snapshot.
 func insertAttrs(tx *sql.Tx, vsid string, id string, attrs attrs.Attrs) error {
 	if attrs == nil || len(attrs) == 0 {
 		return nil
