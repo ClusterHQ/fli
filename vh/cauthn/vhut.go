@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"bytes"
 )
 
 const (
@@ -66,6 +67,8 @@ func (v *VHUT) InitFromFile(filename string) error {
 		return err
 	}
 
+	bytes = v.removeBomMarker(bytes)
+	
 	return v.InitFromString(strings.TrimSpace(string(bytes)))
 }
 
@@ -79,4 +82,9 @@ func (v *VHUT) UpdateRequest(r *http.Request) error {
 	}
 	r.Header.Set(vhutHeaderName, v.vhut)
 	return nil
+}
+
+// removeBomMarker removes leading and trailing UTF8 BomMarker from the specified content.
+func (v *VHUT) removeBomMarker(content []byte) []byte {
+	return bytes.Trim(content,"\xef\xbb\xbf")
 }
