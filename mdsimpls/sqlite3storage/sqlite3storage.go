@@ -732,74 +732,119 @@ func (store *Sqlite3Storage) GetBranches(q branch.Query) ([]*branch.Branch, erro
 	}
 	defer tx.Rollback()
 
+	stmtSnap := `
+		SELECT s.[id], [parent_id], s.[volumeset_id], [creation_time], [blob_id], [creator_uuid],
+		[owner_uuid], [creator_username], [owner_username], [size], [last_modified_time], [depth],
+			(SELECT count(id) FROM snapshot AS ss WHERE ss.parent_id = s.id) AS numChild
+			FROM snapshot s
+    `
+	stmtBranch := `
+	SELECT b.[id], b.[name], b.[tip]
+	FROM branch AS b WHERE volumeset_id = ?
+	`
 	var args []interface{}
-
-	statement := `
-SELECT [id], [name], [tip]
-FROM [branch]
-WHERE [volumeset_id] = ?
-`
 	args = append(args, q.VolSetID.String())
 	if !q.ID.IsNilID() {
-		statement += "AND [id] = ?"
+		stmtBranch += " AND b.id = ?" + strconv.Itoa(len(args)+1)
 		args = append(args, q.ID.String())
 	}
-	selectBranches, err := tx.Prepare(statement)
-	if err != nil {
-		return nil, errors.New(err)
-	}
-	defer selectBranches.Close()
 
-	rows, err := selectBranches.Query(args...)
+	stmt :=
+		"SELECT tblBranch.id, name, tip, " +
+			"tblSnap.id, parent_id, tblSnap.volumeset_id, creation_time, blob_id, creator_uuid, " +
+			"owner_uuid, creator_username, owner_username, size, last_modified_time, depth, numChild " +
+			"FROM (" + stmtBranch + ") tblBranch LEFT JOIN (" + stmtSnap + ") tblSnap " +
+			"ON tblBranch.tip = tblSnap.id"
+	selBranches, err := tx.Prepare(stmt)
 	if err != nil {
-		return nil, errors.New(err)
+		return nil, err
+	}
+	defer selBranches.Close()
+
+	rows, err := selBranches.Query(args...)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 
 	result := []*branch.Branch{}
 	for rows.Next() {
 		var (
-			id         string
-			branchName string
-			tip        string
-			name       sql.NullString
+			bid              string
+			branchName       sql.NullString
+			tip              sql.NullString
+			ssid             string
+			parentID         sql.NullString
+			volumesetID      string
+			creationTime     int64
+			blobID           string
+			creatorUUID      string
+			ownerUUID        string
+			creatorName      string
+			ownerName        string
+			size             uint64
+			parentIDPtr      *snapshot.ID
+			lastModifiedTime int64
+			depth            int
+			numChild         int
 		)
-		err = rows.Scan(&id, &name, &tip)
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
+		err = rows.Scan(&bid, &branchName, &tip, &ssid, &parentID, &volumesetID, &creationTime, &blobID,
+			&creatorUUID, &ownerUUID, &creatorName, &ownerName, &size, &lastModifiedTime, &depth,
+			&numChild)
 		if err != nil {
-			return nil, errors.New(err)
+			if err == sql.ErrNoRows {
+				return nil, &metastore.ErrBranchNotFound{}
+			}
+			return nil, errors.Errorf("Failed to scan rows: %v", err)
 		}
 
-		if name.Valid {
-			branchName = name.String
-		} else {
-			branchName = ""
+		if parentID.Valid {
+			pid := snapshot.NewID(parentID.String)
+			parentIDPtr = &pid
 		}
-		snap, err := getSnapshotForRead(tx, snapshot.NewID(tip))
-		if err != nil {
-			return nil, err
+
+		snap := &snapshot.Snapshot{
+			VolSetID:         volumeset.NewID(volumesetID),
+			ID:               snapshot.NewID(ssid),
+			ParentID:         parentIDPtr,
+			CreationTime:     time.Unix(0, creationTime),
+			LastModifiedTime: time.Unix(0, lastModifiedTime),
+			Creator:          creatorUUID,
+			CreatorName:      creatorName,
+			Owner:            ownerUUID,
+			OwnerName:        ownerName,
+			Size:             size,
+			Depth:            depth,
+			BlobID:           blob.NewID(blobID),
+			PrevBlobID:       blob.NewID(blobID),
+			NumChildren:      numChild,
+		}
+
+		if tip.Valid {
+			snap.IsTip = true
+			if branchName.Valid {
+				snap.BranchName = branchName.String
+			}
 		}
 
 		result = append(
 			result,
 			&branch.Branch{
-				ID:       branch.NewID(id),
-				Name:     branchName,
+				ID:       branch.NewID(bid),
+				Name:     snap.BranchName,
 				Tip:      snap,
-				HasChild: false,
+				HasChild: numChild > 0,
 			},
 		)
 	}
 
-	// Update tip's has child field
 	for _, b := range result {
-		numChildren, err := snapGetNumChildren(tx, b.Tip.ID)
+		attr, err := getAttrs(tx, b.Tip.VolSetID.String(), b.Tip.ID.String())
 		if err != nil {
 			return nil, err
 		}
-		b.HasChild = numChildren > 0
+		b.Tip.Attrs = attr
+		b.Tip.RetrieveKnownKeys()
 	}
 
 	return result, nil
@@ -1595,7 +1640,7 @@ func getSnapshotForRead(tx *sql.Tx, id snapshot.ID) (*snapshot.Snapshot, error) 
 // of a snapshot, non mutable fields like depth, IsTip, etc are not read to gain better performance.
 func getSnapshotForWrite(tx *sql.Tx, ids []snapshot.ID) ([]*snapshot.Snapshot, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("Expect at least one snapshot ID.")
+		return nil, errors.New("Expect at least one snapshot ID")
 	}
 
 	snaps := []*snapshot.Snapshot{}

@@ -32,6 +32,7 @@ import (
 	"github.com/ClusterHQ/fli/dl/testutils"
 	"github.com/ClusterHQ/fli/dl/zfs"
 	"github.com/ClusterHQ/fli/errors"
+	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/ClusterHQ/fli/securefilepath"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func basicTests(t *testing.T, s datalayer.Storage) error {
 	}
 
 	// Creates a snapshot
-	blobid, err := s.CreateSnapshot(vsid, vid)
+	blobid, err := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
 	if err != nil {
 		t.Error("Create snapshot failed", err)
 		return err
@@ -135,7 +136,7 @@ func spaceTests(t *testing.T, s datalayer.Storage) error {
 	vid, vpath, _ := s.CreateVolume(vsid, p)
 
 	// Create a snapshot
-	blobid1, _ := s.CreateSnapshot(vsid, vid)
+	blobid1, _ := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
 
 	totalSpace1, err := s.GetTotalSpace()
 	if err != nil {
@@ -172,7 +173,7 @@ func spaceTests(t *testing.T, s datalayer.Storage) error {
 	}
 
 	// Create another snapshot
-	blobid2, _ := s.CreateSnapshot(vsid, vid)
+	blobid2, _ := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
 
 	totalSpace2, _ := s.GetTotalSpace()
 	log.Printf("totalSpace2.Used = %d totalSpace2.Available = %d\n", totalSpace2.Used, totalSpace2.Available)
@@ -252,14 +253,14 @@ func deleteVolumeSet(t *testing.T, s datalayer.Storage) error {
 	}
 
 	// Creates a snapshot
-	blobid1, err := s.CreateSnapshot(vsid, vid)
+	blobid1, err := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
 	if err != nil {
 		t.Error("Create snapshot failed", err)
 		return err
 	}
 
 	// Creates another snapshot
-	blobid2, err := s.CreateSnapshot(vsid, vid)
+	blobid2, err := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
 	if err != nil {
 		t.Error("Create snapshot failed", err)
 		return err

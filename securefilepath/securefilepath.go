@@ -76,12 +76,12 @@ func New(path string) (SecureFilePath, error) {
 func (p *internalPath) Child(segment string) (SecureFilePath, error) {
 	if filepath.IsAbs(segment) {
 		return nil, fmt.Errorf(
-			"Segment must be a single path segment, not '%s'.",
+			"Segment must be a single path segment, not '%s'",
 			segment)
 	}
 	if strings.ContainsRune(segment, '\000') {
 		return nil, fmt.Errorf(
-			"Segment must not contain nul but %#v does.",
+			"Segment must not contain nul but %#v does",
 			segment)
 	}
 	candidate := filepath.Join(p.path, segment)

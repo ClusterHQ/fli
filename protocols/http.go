@@ -100,6 +100,7 @@ type (
 	// ReqUploadToken ...
 	ReqUploadToken struct {
 		VolumeSetID volumeset.ID
+		SnapshotID  snapshot.ID
 		BaseBlobID  blob.ID
 	}
 
@@ -293,6 +294,9 @@ const (
 
 	// HTTPPathUpdateSnapshots ...
 	HTTPPathUpdateSnapshots = "update/snapshots"
+
+	// HTTPPathAnalytics ...
+	HTTPPathAnalytics = "analytics"
 )
 
 // ErrHTTPXferTimeout transfer timed out error

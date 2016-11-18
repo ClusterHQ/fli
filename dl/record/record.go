@@ -2013,7 +2013,7 @@ func writeString(target io.Writer, s string) error {
 	}
 	n, err := target.Write([]byte(s))
 	if n != len(s) {
-		return errors.New("Failed to encode string, wrong length encoded.")
+		return errors.New("Failed to encode string, wrong length encoded")
 	}
 	return err
 }
@@ -2026,7 +2026,7 @@ func readString(src io.Reader) (string, error) {
 	data := make([]byte, l, l)
 	n, err := io.ReadAtLeast(src, data, int(l))
 	if uint64(n) != l {
-		return "", errors.New("Failed to decode string, wrong length.")
+		return "", errors.New("Failed to decode string, wrong length")
 	}
 	return string(data), nil
 }
@@ -2038,7 +2038,7 @@ func writeBytes(target io.Writer, data []byte) error {
 	}
 	n, err := target.Write(data)
 	if n != len(data) {
-		return errors.New("Failed to encode []byte, wrong length encoded.")
+		return errors.New("Failed to encode []byte, wrong length encoded")
 	}
 	return err
 }
@@ -2051,7 +2051,7 @@ func readBytes(src io.Reader) ([]byte, error) {
 	data := make([]byte, l, l)
 	n, err := io.ReadAtLeast(src, data, int(l))
 	if uint64(n) != l {
-		return nil, errors.New("Failed to decode []byte, wrong length.")
+		return nil, errors.New("Failed to decode []byte, wrong length")
 	}
 	return data, nil
 }

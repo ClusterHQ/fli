@@ -35,14 +35,25 @@ type (
 	// BlobUploader sends a local blob identified by delta of the blob id and the base blob id. The receiver of the blob
 	// is identified by the token.
 	BlobUploader interface {
-		// UploadBlobDiff ...
-		UploadBlobDiff(vsid volumeset.ID, base blob.ID, blob blob.ID, token string, dspuburl string) error
+		UploadBlobDiff(
+			vsid volumeset.ID,
+			base blob.ID,
+			blob blob.ID,
+			token string,
+			dspuburl string,
+		) error
 	}
 
 	// BlobDownloader receives a blob from the sender identified by the token, blob received is applied to the base.
 	BlobDownloader interface {
-		// DownloadBlobDiff ...
-		DownloadBlobDiff(vsid volumeset.ID, base blob.ID, token string, dspuburl string) (blob.ID, uint64, error)
+		DownloadBlobDiff(
+			vsid volumeset.ID,
+			ssid snapshot.ID,
+			base blob.ID,
+			reuseVolume bool,
+			token string,
+			dspuburl string,
+		) (blob.ID, uint64, error)
 	}
 )
 
@@ -85,8 +96,16 @@ func forking(mds metastore.Client, branchName string, syncMode metastore.SyncMod
 }
 
 // Snapshot takes a snapshot of a volume by ask storage layer to take a snapshot followed by updating meta data store
-func Snapshot(mds metastore.Client, s datalayer.Storage, volid volume.ID, branchName string,
-	syncMode metastore.SyncMode, name string, attrs attrs.Attrs, desc string) (*snapshot.Snapshot, error) {
+func Snapshot(
+	mds metastore.Client,
+	s datalayer.Storage,
+	volid volume.ID,
+	branchName string,
+	syncMode metastore.SyncMode,
+	name string,
+	attrs attrs.Attrs,
+	desc string,
+) (*snapshot.Snapshot, error) {
 	vol, err := mds.GetVolume(volid)
 	if err != nil {
 		return nil, err
@@ -99,8 +118,9 @@ func Snapshot(mds metastore.Client, s datalayer.Storage, volid volume.ID, branch
 		}
 	}
 
+	ssid := snapshot.NewRandomID()
 	// TODO: Make sure this is the right sequence in term of MDS consistence(transaction)
-	blobid, err := s.CreateSnapshot(vol.VolSetID, volid)
+	blobid, err := s.CreateSnapshot(vol.VolSetID, ssid, volid)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +132,6 @@ func Snapshot(mds metastore.Client, s datalayer.Storage, volid volume.ID, branch
 
 	vsid := vol.VolSetID
 
-	// TODO: Integrate with CLI to pass the auto sync mode
 	var sn *snapshot.Snapshot
 	fork, err := forking(mds, branchName, syncMode, vol.BaseID)
 	if err != nil {
@@ -120,9 +139,29 @@ func Snapshot(mds metastore.Client, s datalayer.Storage, volid volume.ID, branch
 	}
 
 	if fork {
-		sn, err = metastore.SnapshotFork(mds, vsid, branchName, vol.BaseID, blobid, attrs, name, space.LogicalSize, desc)
+		sn, err = metastore.SnapshotFork(
+			mds,
+			vsid,
+			ssid,
+			branchName,
+			vol.BaseID,
+			blobid,
+			attrs,
+			name,
+			space.LogicalSize,
+			desc,
+		)
 	} else {
-		sn, err = metastore.SnapshotExtend(mds, vol.BaseID, blobid, attrs, name, space.LogicalSize, desc)
+		sn, err = metastore.SnapshotExtend(
+			mds,
+			ssid,
+			vol.BaseID,
+			blobid,
+			attrs,
+			name,
+			space.LogicalSize,
+			desc,
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -294,20 +333,83 @@ func UploadBlobDiff(mds metastore.Store, sender BlobUploader, vsid volumeset.ID,
 
 // DownloadBlobDiff is the orchestrator of blob download. It finds the base blob is, download the diff and updates
 // the newly downloaded blob's id in meta data store.
-func DownloadBlobDiff(mds metastore.Store, receiver BlobDownloader, vsid volumeset.ID, base *snapshot.ID,
-	target snapshot.ID, token string, dspuburl string) error {
-	var baseBlobID blob.ID
-	if base != nil {
-		var err error
-		baseBlobID, err = metastore.GetBlobID(mds, *base)
+func DownloadBlobDiff(
+	mds metastore.Client,
+	receiver BlobDownloader,
+	vsid volumeset.ID,
+	base *snapshot.ID,
+	target snapshot.ID,
+	token string,
+	dspuburl string,
+) error {
+	var (
+		baseBlobID  = blob.NilID()
+		reuseVolume bool
+		err         error
+		snap        *snapshot.Snapshot
+	)
+
+	if base != nil && !base.IsNilID() {
+		snap, err = metastore.GetSnapshot(mds, *base)
 		if err != nil {
 			return err
 		}
-	} else {
-		baseBlobID = blob.NilID()
+		baseBlobID = snap.BlobID
 	}
 
-	targetBlobID, size, err := receiver.DownloadBlobDiff(vsid, baseBlobID, token, dspuburl)
+	// See if the volume can be reused.
+	// Note: This is a 'bad' soluton, but for now, we need it. We may consider to let ZFS takes care of this
+	// by using ZFS tags. 'Bad' because meta data layer has to dicate what how datalayer behaves by telling
+	// things the number of child of a snapshot.
+	// ZFS clone has these things that are not in our favor:
+	// 1. Each clone uses about 200K meta data
+	// 2. More importantly, when there are a lot cloned file systems, ZFS becomes slow during clone
+	// 3. Can't delete a file system when there are dependant snapshots.
+	// To help out, we try to see if we can reuse already cloned file system instead of creating one
+	// each time. VH side already does this. But client side is a little moer complicated.
+	// The way it is done on the VH side is when creating a new volume, checks if the file system already
+	// exists, if it doesn, simply return it for reuse.
+	// But client side is a more complicated, for example, if a snapshot already has a volume
+	// created based on it, during download that volume can't be resued because user wants it to be
+	// a working volume set and may be writing data to it.
+	// So we need an extra check here to make sure meta data says no volume has been created
+	// on a snapshot then we know the volume is created by download.
+	// When it is based on the empty base, reuse only when there is no volume for the whole volume set.
+	// Reading all volumes may be a bit expensive, but it is worth it compare the cost of having a lot
+	// unused ZFS clones.
+	// Since this check is based if a file system is written to based on ZFS's written@ property, in the case
+	// of s1 --> s2 --> s3 --> s4 --> fs(clone)
+	//           |
+	//           -> s5
+	// When comparing fs and s5, even though the written@ property is 0, but we can't reuse the same volume
+	// because it alread points to a different snapshot.
+	// To avoid this, only reuse when there is no split off a snapshot(a snapshot has more than one child)
+	if baseBlobID.IsNilID() {
+		vols, err := mds.GetVolumes(vsid)
+		if err != nil {
+			return err
+		}
+		if len(vols) == 0 {
+			reuseVolume = true
+		}
+	} else {
+		numVols, err := mds.NumVolumes(*base)
+		if err != nil {
+			return err
+		}
+		if numVols == 0 && snap.NumChildren < 2 {
+			reuseVolume = true
+		}
+	}
+
+	targetBlobID, size, err := receiver.DownloadBlobDiff(
+		vsid,
+		target,
+		baseBlobID,
+		reuseVolume,
+		token,
+		dspuburl,
+	)
 	if err != nil {
 		return err
 	}
@@ -334,7 +436,7 @@ func DeleteBranch(mds metastore.Client, s datalayer.Storage, vsid volumeset.ID, 
 	}
 
 	if numVolumes > 0 {
-		return errors.New("Branch tip has pending volume, please delete the volume first.")
+		return errors.New("Branch tip has pending volume, please delete the volume first")
 	}
 
 	var (

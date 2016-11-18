@@ -122,7 +122,7 @@ func DiffAttrs(f1 string, f2 string, target string, records chan<- record.Record
 	var err error
 
 	if f2 == "" {
-		return errors.New("Target file name is empty.")
+		return errors.New("Target file name is empty")
 	}
 
 	// File1 can be empty when we are pushing the first snapshot (no base snapshot to apply diffs to).

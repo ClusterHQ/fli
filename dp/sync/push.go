@@ -68,7 +68,8 @@ var (
 // - A method to check if a given snapshot belongs to a certain branch.
 //   Alternatively, a method that lists all branches that contain the given snapshot, so that
 //   we can check that the branch is in the list.
-func listSnapshots(mds metastore.Syncable, tip *snapshot.Snapshot, upTo *snapshot.ID) ([]*snapshot.Snapshot, error) {
+func listSnapshots(mds metastore.Syncable, tip *snapshot.Snapshot,
+	upTo *snapshot.ID) ([]*snapshot.Snapshot, error) {
 	var snapshots []*snapshot.Snapshot
 
 	for sn := tip; upTo == nil || sn.ID != *upTo; {
@@ -101,27 +102,29 @@ func listSnapshots(mds metastore.Syncable, tip *snapshot.Snapshot, upTo *snapsho
 // until it finds a snapshot that also exists in the target volumeset, or reaches the beginning of the branch.
 func findSharedBranchpoint(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable,
 	sourceTip *snapshot.Snapshot) (*snapshot.Snapshot, error) {
-	// Follow the snapshot ancestry chain.
-	for id := &sourceTip.ID; id != nil; {
-		sn, err := metastore.GetSnapshot(mdsSrc, *id)
-		if err != nil {
-			// XXX Must never happen?
-			return nil, err
+	sn := sourceTip
+	id := &sourceTip.ID
+	for {
+		_, err := metastore.GetSnapshot(mdsTarget, *id)
+		if err == nil {
+			return sn, nil
 		}
-		_, err = metastore.GetSnapshot(mdsTarget, sn.ID)
-		if err != nil {
-			if _, ok := err.(*metastore.ErrSnapshotNotFound); ok {
-				id = sn.ParentID
-				continue
-			}
 
+		if _, ok := err.(*metastore.ErrSnapshotNotFound); !ok {
 			return nil, err
 		}
 
-		return sn, nil
+		id = sn.ParentID
+		if id == nil {
+			break
+		}
+
+		sn, err = metastore.GetSnapshot(mdsSrc, *id)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// None of the snapshots in the chain is known by the target.
 	return nil, nil
 }
 
@@ -135,31 +138,28 @@ func findSharedBranchpoint(mdsSrc metastore.Syncable, mdsTarget metastore.Syncab
 // and try again.  This iteration must converge because at each step the target's
 // state either gets closer to the (static) state of the sources or divereges from
 // it resulting in a fatal error.
-func pushBranch(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid volumeset.ID, b branch.Branch) error {
+func pushBranch(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid volumeset.ID,
+	b *branch.Branch, tgtBranchMap map[branch.ID]*branch.Branch) error {
 	var (
 		targetTipID *snapshot.ID
 		targetTip   *snapshot.Snapshot
 		newBranch   = false
+		err         error
 	)
 	sourceTip := b.Tip
 
 	// Look for the branch on target in order to detect divergence.
-	targetBranch, err := metastore.GetBranch(mdsTarget, vsid, b.ID)
-	if err != nil {
-		if _, ok := err.(*metastore.ErrBranchNotFound); !ok {
-			return err
-		}
-
+	targetBranch, found := tgtBranchMap[b.ID]
+	if found {
+		targetTip = targetBranch.Tip
+	} else {
 		newBranch = true
 		targetTip, err = findSharedBranchpoint(mdsSrc, mdsTarget, sourceTip)
 		if err != nil {
 			log.Printf("Failed to find shared branch point for volumeset %s branch %+v", vsid, b)
 			return err
 		}
-	} else {
-		targetTip = targetBranch.Tip
 	}
-
 	if targetTip != nil {
 		targetTipID = &targetTip.ID
 	}
@@ -209,6 +209,7 @@ func pushBranch(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid vo
 		return err
 	}
 
+	// TODO: Can targetTip == nil?
 	log.Print("Detected diverging histories while trying to push")
 	return &HistoryDivergedError{
 		branch:    b.Name,
@@ -219,15 +220,25 @@ func pushBranch(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid vo
 
 // Push all branches in a volumeset one by one.
 func pushVolumeSet(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid volumeset.ID) error {
-	branches, err := metastore.GetBranches(mdsSrc, branch.Query{VolSetID: vsid})
+	srcBranches, err := metastore.GetBranches(mdsSrc, branch.Query{VolSetID: vsid})
 	if err != nil {
 		return err
 	}
 
-	sort.Sort(branch.SortableBranchesByTipDepth(branches))
-	for _, b := range branches {
+	// Read all traget branches in one trip.
+	tgtBranches, err := metastore.GetBranches(mdsTarget, branch.Query{VolSetID: vsid})
+	if err != nil {
+		return err
+	}
+	tgtBranchMap := make(map[branch.ID]*branch.Branch)
+	for _, b := range tgtBranches {
+		tgtBranchMap[b.ID] = b
+	}
+
+	sort.Sort(branch.SortableBranchesByTipDepth(srcBranches))
+	for _, b := range srcBranches {
 		for {
-			err = pushBranch(mdsSrc, mdsTarget, vsid, *b)
+			err = pushBranch(mdsSrc, mdsTarget, vsid, b, tgtBranchMap)
 			if err == nil {
 				// This branch has been successfully pushed.
 				break
@@ -292,13 +303,23 @@ func PushMetadata(source metastore.Syncable, target metastore.Syncable, vsid vol
 }
 
 // MetadataSync syncs the volumeset between the metadata stores.
+// In a two way sync mode:
 // 1. Push new snapshots from current to target
 // 2. Pull new snapshots from target to current
 // 3. Pull new snapshots from current to initial(including locally newly created and pulled from target)
 // 4. Sync meta data including both existing and new among all three stores. This is done after new snapshots
 //    are synced first because during sync, target might change some of the meta fields, for example,
 //    creator, owner, etc.
-func MetadataSync(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumeset.ID) (MetaConflicts, error) {
+// In one way sync mode:
+// 1. Pull new snapshots from target to current
+// 2. Pull new snapshots from current to initial(including locally newly created and pulled from target)
+// 3. Sync meta data (new and old) from target to current and initial. Local changes will be overwritten
+//    with data from target when there are conflicts.
+func MetadataSync(
+	storeTgt, storeCur, storeInit metastore.Syncable,
+	vsid volumeset.ID,
+	oneWay bool,
+) (MetaConflicts, error) {
 	log.Println("Syncing meta data of new objects ...")
 	var (
 		tgtNotFound bool
@@ -310,7 +331,6 @@ func MetadataSync(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumes
 		if _, ok := errTgt.(*metastore.ErrVolumeSetNotFound); !ok {
 			return MetaConflicts{}, errTgt
 		}
-
 		tgtNotFound = true
 	}
 
@@ -319,16 +339,14 @@ func MetadataSync(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumes
 		if _, ok := errCur.(*metastore.ErrVolumeSetNotFound); !ok {
 			return MetaConflicts{}, errCur
 		}
-
 		curNotFound = true
 	}
 
-	// Volumeset-id not found in neither mds, err
 	if tgtNotFound && curNotFound {
 		return MetaConflicts{}, errors.Errorf("VolumeSet (%s) not found anywhere.", vsid.String())
 	}
 
-	if errCur == nil {
+	if errCur == nil && !oneWay {
 		log.Println("Pushing meta data to remote ...")
 		err := PushMetadata(storeCur, storeTgt, vsid)
 		if err != nil {
@@ -337,13 +355,8 @@ func MetadataSync(storeTgt, storeCur, storeInit metastore.Syncable, vsid volumes
 	}
 
 	if errTgt == nil {
-		_, err := metastore.GetVolumeSet(storeTgt, vsid)
-		if err != nil {
-			return MetaConflicts{}, err
-		}
-
 		log.Println("Pulling meta data from remote ...")
-		err = PushMetadata(storeTgt, storeCur, vsid)
+		err := PushMetadata(storeTgt, storeCur, vsid)
 		if err != nil {
 			return MetaConflicts{}, err
 		}

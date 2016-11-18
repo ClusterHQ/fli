@@ -32,7 +32,7 @@ type BlobSpewer interface {
 
 // PullDataForAllSnapshots retrieves all blobs missing on target which source
 // is willing to provide.
-func PullDataForAllSnapshots(source BlobSpewer, mds metastore.Store, vsid volumeset.ID,
+func PullDataForAllSnapshots(source BlobSpewer, mds metastore.Client, vsid volumeset.ID,
 	receiver dataplane.BlobDownloader) error {
 	snapshots, err := NewSnapshotIterator(mds, vsid)
 	if err != nil {
@@ -44,7 +44,7 @@ func PullDataForAllSnapshots(source BlobSpewer, mds metastore.Store, vsid volume
 // PullDataForCertainSnapshots retrieves the blobs associated with any of the
 // specified snapshots which are missing on target and which source is willing
 // to provide.
-func PullDataForCertainSnapshots(source BlobSpewer, mds metastore.Store, receiver dataplane.BlobDownloader,
+func PullDataForCertainSnapshots(source BlobSpewer, mds metastore.Client, receiver dataplane.BlobDownloader,
 	pullSnapshots []snapshot.ID) error {
 	if len(pullSnapshots) == 0 {
 		return nil
@@ -65,7 +65,7 @@ func PullDataForCertainSnapshots(source BlobSpewer, mds metastore.Store, receive
 
 // PullDataForQualifyingSnapshots downloads all blobs associated with snapshots
 // allowed by a given predicate and which the source is willing to send.
-func PullDataForQualifyingSnapshots(source BlobSpewer, mds metastore.Store, vsid volumeset.ID,
+func PullDataForQualifyingSnapshots(source BlobSpewer, mds metastore.Client, vsid volumeset.ID,
 	receiver dataplane.BlobDownloader, shouldPull SnapshotPredicate) error {
 	allSnapshots, err := NewSnapshotIterator(mds, vsid)
 	if err != nil {
@@ -81,7 +81,7 @@ func PullDataForQualifyingSnapshots(source BlobSpewer, mds metastore.Store, vsid
 //
 // Note: Only snapshots for which the metadata already exists on the target
 // will have their blobs considered for pull.
-func pullData(source BlobSpewer, mds metastore.Store, receiver dataplane.BlobDownloader,
+func pullData(source BlobSpewer, mds metastore.Client, receiver dataplane.BlobDownloader,
 	snapshots SnapshotIterator) error {
 	for {
 		sn, err := snapshots.Next()
@@ -114,7 +114,15 @@ func pullData(source BlobSpewer, mds metastore.Store, receiver dataplane.BlobDow
 			continue
 		}
 
-		err = dataplane.DownloadBlobDiff(mds, receiver, sn.VolSetID, baseID, sn.ID, token, dspuburl)
+		err = dataplane.DownloadBlobDiff(
+			mds,
+			receiver,
+			sn.VolSetID,
+			baseID,
+			sn.ID,
+			token,
+			dspuburl,
+		)
 		if err != nil {
 			return err
 		}

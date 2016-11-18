@@ -109,8 +109,11 @@ func pushData(mds metastore.Store, sender dataplane.BlobUploader, target BlobAcc
 
 		baseID, token, dspuburl, err := target.OfferBlobDiff(sn.VolSetID, sn.ID, blobs)
 		if err != nil {
-			log.Printf("Snapshot %s offer rejected by target: %v", sn.ID, err)
-			continue
+			if _, ok := err.(*metastore.ErrAlreadyHaveBlob); ok {
+				log.Printf("Snapshot %s offer rejected by target, already has blob", sn.ID)
+				continue
+			}
+			return err
 		}
 
 		err = dataplane.UploadBlobDiff(mds, sender, sn.VolSetID, baseID, sn.ID, token, dspuburl)

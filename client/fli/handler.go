@@ -40,7 +40,6 @@ import (
 	"github.com/ClusterHQ/fli/protocols"
 	"github.com/ClusterHQ/fli/securefilepath"
 	"github.com/ClusterHQ/fli/vh/cauthn"
-	"github.com/pborman/uuid"
 )
 
 // Handler ...
@@ -503,7 +502,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			return cmdOut, err
 		}
 
-		conflicts, err := sync.MetadataSync(fhMds, mdsCurr, mdsInit, volset.ID)
+		conflicts, err := sync.MetadataSync(fhMds, mdsCurr, mdsInit, volset.ID, false)
 		if err != nil {
 			return cmdOut, err
 		}
@@ -1234,16 +1233,9 @@ To skip URL validation use --offline option`)
 To skip URL validation use --offline option`)
 		}
 
-		fhMds, err := c.getRestfulMds(c.CfgParams.FlockerHubURL, c.CfgParams.AuthTokenFile)
-		if err != nil {
-			return cmdOut, err
-		}
-
-		// Note: This is to make sure VH is reachable
-		_, err = metastore.GetVolumeSets(fhMds, volumeset.Query{
-			ID: volumeset.NewID(uuid.New()),
-		})
-		if err != nil {
+		// Analytics notification that validates URL
+		analyticsLogger := NewAnalyticsLogger(c.CfgParams.FlockerHubURL, c.CfgParams.AuthTokenFile)
+		if err := analyticsLogger.LogConfig(); err != nil {
 			return cmdOut, err
 		}
 	}

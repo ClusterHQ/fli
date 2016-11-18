@@ -19,12 +19,12 @@
 package zfs
 
 import (
-	"log"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/ClusterHQ/fli/dl/datalayer"
+	"github.com/ClusterHQ/fli/errors"
 )
 
 // ZFS backend shell command interface implementation
@@ -41,8 +41,9 @@ func run(args ...string) ([]byte, error) {
 func list(root string) ([]string, error) {
 	o, err := run("list", "-H", "-o", "name", "-r", root)
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("%#v %#v", o, err)
 	}
+
 	names := strings.Split(string(o), "\n")
 	// Drop the final empty element that follows the final newline.
 	return names[:len(names)-1], nil
@@ -76,13 +77,7 @@ func exists(fs string) bool {
 func destroy(fs string) error {
 	o, err := run([]string{"destroy", fs}...)
 	if err != nil {
-		exited, ok := err.(*exec.ExitError)
-		if ok {
-			log.Printf("destroy failed: %s", string(exited.Stderr))
-		} else {
-			log.Printf("destroy failed: %#v %#v", o, err)
-		}
-		return err
+		return errors.Errorf("%#v %#v", o, err)
 	}
 	return nil
 }
@@ -95,15 +90,9 @@ func clone(path string, b string) error {
 	// Form volume ID (format: zppol/uuid)
 	o, err := run([]string{"clone", b, path}...)
 	if err != nil {
-		exited, ok := err.(*exec.ExitError)
-		if ok {
-			log.Printf("zfs clone (create volume): %s", string(exited.Stderr))
-		} else {
-			log.Printf("zfs clone (create volume) failed: %#v %#v", o, err)
-		}
+		return errors.Errorf("%#v %#v", o, err)
 	}
-
-	return err
+	return nil
 }
 
 func rollback(fs string) error {
@@ -137,10 +126,9 @@ func rollback(fs string) error {
 func snapshot(path []string) error {
 	o, err := run([]string{"snapshot", path[0]}...)
 	if err != nil {
-		log.Println(o)
+		return errors.Errorf("%#v %#v", o, err)
 	}
-
-	return err
+	return nil
 }
 
 func initialize() {
@@ -154,28 +142,15 @@ func finish() {
 func createFileSystem(path string) error {
 	o, err := run([]string{"create", path}...)
 	if err != nil {
-		exited, ok := err.(*exec.ExitError)
-		if ok {
-			log.Printf("zfs create (create filesystem): %s", string(exited.Stderr))
-		} else {
-			log.Printf("zfs create (create filesystem) failed: %#v %#v", o, err)
-		}
+		return errors.Errorf("%#v %#v", o, err)
 	}
-
 	return nil
 }
 
 func destroyFileSystem(path string) error {
-	o, err := run([]string{"destroy", "-rR", path}...)
-	if err != nil {
-		exited, ok := err.(*exec.ExitError)
-		if ok {
-			log.Printf("zfs destroy filesystem: %s", string(exited.Stderr))
-		} else {
-			log.Printf("zfs destroy filesystem failed: %#v %#v", o, err)
-		}
-	}
-
+	// Note: ZFS will return error here becaus ethe fiel system has snapshot, see rollback for more
+	// details. Not returning error here.
+	run([]string{"destroy", "-rR", path}...)
 	return nil
 }
 
@@ -184,9 +159,9 @@ func destroyFileSystem(path string) error {
 func getProperties(ds string, propList string) ([]string, error) {
 	o, err := run([]string{"get", "-Hp", "-o", "value", propList, ds}...)
 	if err != nil {
-		log.Printf("zfs get failed: %#v %#v", o, err)
-		return nil, err
+		return nil, errors.Errorf("%#v %#v", o, err)
 	}
+
 	// Note that the last array element is an empty string after the last new line.
 	lines := strings.Split(string(o), "\n")
 	return lines[0 : len(lines)-1], nil
@@ -197,12 +172,18 @@ func getSnapshotSpace(snap string) (datalayer.SnapshotSpace, error) {
 	if err != nil {
 		return datalayer.SnapshotSpace{}, err
 	}
+
 	var written uint64
 	referenced, err := strconv.ParseUint(lines[0], 10, 64)
 	if err == nil {
 		written, err = strconv.ParseUint(lines[1], 10, 64)
 	}
-	return datalayer.SnapshotSpace{LogicalSize: referenced, DeltaFromPrevious: written}, err
+
+	if err != nil {
+		return datalayer.SnapshotSpace{}, errors.New(err)
+	}
+
+	return datalayer.SnapshotSpace{LogicalSize: referenced, DeltaFromPrevious: written}, nil
 }
 
 func getFSAndDescendantsSpace(fs string) (datalayer.DiskSpace, error) {
@@ -210,12 +191,18 @@ func getFSAndDescendantsSpace(fs string) (datalayer.DiskSpace, error) {
 	if err != nil {
 		return datalayer.DiskSpace{}, err
 	}
+
 	var avail uint64
 	used, err := strconv.ParseUint(lines[0], 10, 64)
 	if err == nil {
 		avail, err = strconv.ParseUint(lines[1], 10, 64)
 	}
-	return datalayer.DiskSpace{Used: used, Available: avail}, err
+
+	if err != nil {
+		return datalayer.DiskSpace{}, errors.New(err)
+	}
+
+	return datalayer.DiskSpace{Used: used, Available: avail}, nil
 }
 
 func getUint64Property(ds, prop string) (uint64, error) {
@@ -223,7 +210,13 @@ func getUint64Property(ds, prop string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseUint(lines[0], 10, 64)
+
+	v, err := strconv.ParseUint(lines[0], 10, 64)
+	if err != nil {
+		return 0, errors.New(err)
+	}
+
+	return v, nil
 }
 
 func validate(zpool string) error {

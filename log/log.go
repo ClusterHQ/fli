@@ -43,15 +43,15 @@ var std = New(os.Stdout, "")
 func getPrefix(level Level) string {
 	switch level {
 	case Debug:
-		return "[DEBUG]"
+		return "[DEBUG] "
 	case Info:
-		return "[INFO]"
+		return "[INFO] "
 	case Warn:
-		return "[WARN]"
+		return "[WARN] "
 	case Error:
-		return "[ERROR]"
+		return "[ERROR] "
 	case Critical:
-		return "[CRITICAL]"
+		return "[CRITICAL] "
 	default:
 		log.Panicln("Should not reach")
 	}
@@ -84,21 +84,21 @@ func (l *Logger) WithLevel(level Level) *Logger {
 // Info ..
 func (l *Logger) Info(format string, args ...interface{}) {
 	if l.level >= Info {
-		l.Logger.Printf(getPrefix(Info)+format, args)
+		l.Logger.Printf(getPrefix(Info)+format, args...)
 	}
 }
 
 // Debug ..
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.level >= Debug {
-		l.Logger.Printf(getPrefix(Debug)+format, args)
+		l.Logger.Printf(getPrefix(Debug)+format, args...)
 	}
 }
 
 // Error ..
 func (l *Logger) Error(format string, args ...interface{}) {
 	if l.level >= Error {
-		l.Logger.Printf(getPrefix(Error)+format, args)
+		l.Logger.Printf(getPrefix(Error)+format, args...)
 	}
 }
 

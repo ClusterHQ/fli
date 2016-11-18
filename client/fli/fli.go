@@ -132,9 +132,26 @@ func (b blobDiff) UploadBlobDiff(vsid volumeset.ID, base blob.ID, targetBlobID b
 }
 
 // DownloadBlobDiff ...
-func (b blobDiff) DownloadBlobDiff(vsid volumeset.ID, base blob.ID, t string, dspuburl string) (blob.ID, uint64, error) {
-	return datalayer.DownloadBlobDiff(b.store, b.ed, vsid, base, t, executor.NewCommonExecutor(),
-		b.hf, dspuburl)
+func (b blobDiff) DownloadBlobDiff(
+	vsid volumeset.ID,
+	ssid snapshot.ID,
+	base blob.ID,
+	reuseVolume bool,
+	token string,
+	dspuburl string,
+) (blob.ID, uint64, error) {
+	return datalayer.DownloadBlobDiff(
+		b.store,
+		b.ed,
+		vsid,
+		ssid,
+		base,
+		reuseVolume,
+		token,
+		executor.NewCommonExecutor(),
+		b.hf,
+		dspuburl,
+	)
 }
 
 // getHomeDir gets the full path of the current user's home dir, if unable to fetch the user home dir path then

@@ -37,7 +37,8 @@ import (
 )
 
 type (
-	// HubAddress is an encapsulation for an addess of a remote repository.
+	// HubAddress is an encapsulation for an addess of a remote MDS.
+	// TODO: Remove this struct to directly access URL in MetadataStorage
 	HubAddress struct {
 		RootResource *url.URL
 	}
@@ -58,9 +59,8 @@ var (
 	_ sync.BlobSpewer    = &MetadataStorage{}
 )
 
-// Create is a function that creates a new object with MetadataStorage
-// interface that acts as a proxy to another MetadataStorage implementation
-// that is accessible via RESTful HTTP API.
+// Create creates a new object with MetadataStorage interface that acts as a proxy to another
+// MetadataStorage implementation that is accessible via RESTful HTTP API.
 // Takes an initialized http.Client, leaving connection details out of scope.
 // Probably needs an authorization token for performing various operations,
 // to be added later.
@@ -86,6 +86,8 @@ func (rs *MetadataStorage) newAuthHTTPRequest(method, urlStr string, body io.Rea
 		}
 	}
 
+	corrID := protocols.GenerateCorrelationID()
+	protocols.SetCorrelationID(req, corrID)
 	return req, nil
 }
 
@@ -122,7 +124,10 @@ func (rs *MetadataStorage) ImportVolumeSet(vs *volumeset.VolumeSet) error {
 
 // GetVolumeSets ...
 func (rs *MetadataStorage) GetVolumeSets(q volumeset.Query) ([]*volumeset.VolumeSet, error) {
-	payload, err := json.Marshal(protocols.ReqGetVolumeSets{q})
+	payload, err := json.Marshal(
+		protocols.ReqGetVolumeSets{
+			Query: q,
+		})
 	if err != nil {
 		return nil, err
 	}

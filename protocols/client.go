@@ -18,7 +18,11 @@ package protocols
 
 import (
 	"crypto/tls"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // VerifyCert ..
@@ -48,24 +52,32 @@ func GetClient() *Client {
 
 // Do ...
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	// TODO: Commenting out for now until we have a way to pass different logger.
-	//       Right now it prints out too many send messages on CLI's screen
-	//       start := time.Now()
+	start := time.Now()
+	correlationID := GetCorrelationID(req)
+
+	logStr := []string{
+		"[HTTP-Send]",
+		correlationID,
+		req.Method,
+		req.URL.String(),
+	}
+	log.Printf(strings.Join(logStr, " "))
 
 	resp, err := c.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// elasped := time.Now().Sub(start)
-	// logStr := []string{
-	// 	"[HTTP-Send]",
-	// 	req.Method,
-	// 	req.URL.String(),
-	// 	elasped.String(),
-	// 	resp.Status,
-	// 	strconv.Itoa(int(resp.ContentLength)),
-	// }
-	// log.Printf(strings.Join(logStr, " "))
+	elasped := time.Now().Sub(start)
+	logStr = []string{
+		"[HTTP-Send-Respond]",
+		correlationID,
+		req.Method,
+		req.URL.String(),
+		elasped.String(),
+		resp.Status,
+		strconv.Itoa(int(resp.ContentLength)),
+	}
+	log.Printf(strings.Join(logStr, " "))
 	return resp, err
 }

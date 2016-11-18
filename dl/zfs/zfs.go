@@ -17,12 +17,13 @@
 package zfs
 
 import (
-	"fmt"
+	"log"
 	"strings"
 
 	"github.com/ClusterHQ/fli/dl/datalayer"
 	"github.com/ClusterHQ/fli/errors"
 	"github.com/ClusterHQ/fli/meta/blob"
+	snapPkg "github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/ClusterHQ/fli/securefilepath"
@@ -114,7 +115,10 @@ func (z ZFS) EmptyBlobID(vsid volumeset.ID) (blob.ID, error) {
 		if err != nil {
 			return blob.NilID(), err
 		}
+
+		log.Printf("Empty base created for %v", fs)
 	}
+
 	return blob.NewID(base), nil
 }
 
@@ -147,7 +151,6 @@ func (z ZFS) GetVolumeForSnapshot(vsid volumeset.ID, b blob.ID) (volume.ID, secu
 	var vid volume.ID
 
 	vsname := z.volumesetPath(vsid)
-
 	s := strings.Split(b.String(), "@")
 	if len(s) != 2 {
 		return vid, nil, errors.Errorf("Invalid blob id %v", b)
@@ -163,7 +166,7 @@ func (z ZFS) GetVolumeForSnapshot(vsid volumeset.ID, b blob.ID) (volume.ID, secu
 		return vid, nil, errors.Errorf("Blob id %v does not match volumeset %v", b, vsid)
 	}
 
-	// The blob must exit.
+	// The blob must exist.
 	exists, err := z.SnapshotExists(b)
 	if err != nil {
 		return vid, nil, err
@@ -188,8 +191,8 @@ func (z ZFS) GetVolumeForSnapshot(vsid volumeset.ID, b blob.ID) (volume.ID, secu
 }
 
 // CreateSnapshot is the ZFS implementation of the Storage interface
-func (z ZFS) CreateSnapshot(vsid volumeset.ID, vid volume.ID) (blob.ID, error) {
-	path := strings.Join([]string{z.volumePath(vsid, vid), uuidPkg.New()}, "@")
+func (z ZFS) CreateSnapshot(vsid volumeset.ID, ssid snapPkg.ID, vid volume.ID) (blob.ID, error) {
+	path := strings.Join([]string{z.volumePath(vsid, vid), ssid.String()}, "@")
 	err := snapshot([]string{path})
 	if err != nil {
 		return blob.NilID(), err
@@ -222,19 +225,19 @@ func (z ZFS) BlobMountPointPath(b blob.ID) (securefilepath.SecureFilePath, error
 	// Last one has the snapshot name
 	s3 := strings.Split(s1[len(s1)-1], "@")
 	if len(s3) != 2 {
-		return nil, fmt.Errorf("ZFS.BlobMountPointPath invalid blob id %v", b)
+		return nil, errors.Errorf("ZFS.BlobMountPointPath invalid blob id %v", b)
 	}
 
 	// Build secure file path for ZFS snapshot
 	path, err := securefilepath.New("/")
 	if err != nil {
-		return nil, err
+		return nil, errors.New(err)
 	}
 
 	for _, segment := range append(s2, []string{s3[0], snapshotRoot, snapshotDir, s3[1]}...) {
 		path, err = path.Child(segment)
 		if err != nil {
-			return nil, err
+			return nil, errors.New(err)
 		}
 	}
 
@@ -252,11 +255,11 @@ func (z ZFS) volumeMountPointPath(vsid volumeset.ID, vid volume.ID) (securefilep
 	for _, segment := range []string{z.zpool, vsid.String(), vid.String()} {
 		path, err = path.Child(segment)
 		if err != nil {
-			return nil, err
+			return nil, errors.New(err)
 		}
 	}
 
-	return path, err
+	return path, nil
 }
 
 // DestroyVolumeSet ...

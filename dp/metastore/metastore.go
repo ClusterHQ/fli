@@ -17,7 +17,6 @@
 package metastore
 
 import (
-	"log"
 	"strings"
 	"time"
 
@@ -214,8 +213,18 @@ func GetVolumeSetBySnapID(mds Store, sid snapshot.ID) (volumeset.ID, error) {
 }
 
 // SnapshotFork creates a new snapshot and makes it the tip of the indicated branch name.
-func SnapshotFork(mds Store, vsid volumeset.ID, branchName string, parentID *snapshot.ID, blobid blob.ID,
-	a attrs.Attrs, name string, size uint64, desc string) (*snapshot.Snapshot, error) {
+func SnapshotFork(
+	mds Store,
+	vsid volumeset.ID,
+	ssid snapshot.ID,
+	branchName string,
+	parentID *snapshot.ID,
+	blobid blob.ID,
+	a attrs.Attrs,
+	name string,
+	size uint64,
+	desc string,
+) (*snapshot.Snapshot, error) {
 	if a == nil {
 		return nil, errors.New("Attributes for a volume set can be empty but can't be nil")
 	}
@@ -227,13 +236,13 @@ func SnapshotFork(mds Store, vsid volumeset.ID, branchName string, parentID *sna
 			return nil, err
 		}
 		if !parent.VolSetID.Equals(vsid) {
-			return nil, errors.New("Parent does not belong to the given volume set.")
+			return nil, errors.New("Parent does not belong to the given volume set")
 		}
 	}
 
 	sn := snapshot.Snapshot{
 		VolSetID:         vsid,
-		ID:               snapshot.NewRandomID(),
+		ID:               ssid,
 		ParentID:         parentID,
 		Attrs:            a.Copy(),
 		CreationTime:     time.Now(),
@@ -249,8 +258,16 @@ func SnapshotFork(mds Store, vsid volumeset.ID, branchName string, parentID *sna
 }
 
 // SnapshotExtend creates a new snapshot and makes it the new tip of an existing branch.
-func SnapshotExtend(mds Store, parentID *snapshot.ID, blobid blob.ID, a attrs.Attrs,
-	name string, size uint64, desc string) (*snapshot.Snapshot, error) {
+func SnapshotExtend(
+	mds Store,
+	ssid snapshot.ID,
+	parentID *snapshot.ID,
+	blobid blob.ID,
+	a attrs.Attrs,
+	name string,
+	size uint64,
+	desc string,
+) (*snapshot.Snapshot, error) {
 	if a == nil {
 		return nil, errors.New("Attributes for a volume set can be empty but can't be nil")
 	}
@@ -269,7 +286,7 @@ func SnapshotExtend(mds Store, parentID *snapshot.ID, blobid blob.ID, a attrs.At
 
 	sn := snapshot.Snapshot{
 		VolSetID:         parent.VolSetID,
-		ID:               snapshot.NewRandomID(),
+		ID:               ssid,
 		ParentID:         parentID,
 		Attrs:            a.Copy(),
 		CreationTime:     time.Now(),
@@ -307,20 +324,19 @@ func GetBlobID(mds Store, sid snapshot.ID) (blob.ID, error) {
 	return sn.BlobID, nil
 }
 
-// FindNonMissingSnapshot walks the given snapshot list backwards, returns the first snapshot that the meta data store
-// doesn't have, it can be used as the upload base.
+// FindNonMissingSnapshot walks the given snapshot list backwards, returns the first snapshot that the meta data
+// store doesn't have, it can be used as the upload base.
 //
 // Assumptions:
 // 1. baseCandidateIDs[] is a list of snapshots from oldest to newest
-// 2. If a storage has blob A, then it has all blobs older than A
-//
-// XXX Add blob locking
+// 2. If a store has blob A, then it has all blobs older than A
 func FindNonMissingSnapshot(mds Store, targetID snapshot.ID, baseCandidateIDs []snapshot.ID) (*snapshot.ID, error) {
 	// If we have that snapshot's blob already, decline.
 	blobID, err := GetBlobID(mds, targetID)
 	if err != nil {
 		return nil, err
 	}
+
 	if !blobID.IsNilID() {
 		return nil, &ErrAlreadyHaveBlob{}
 	}
@@ -332,18 +348,16 @@ func FindNonMissingSnapshot(mds Store, targetID snapshot.ID, baseCandidateIDs []
 			return nil, err
 		}
 		if !blobID.IsNilID() {
-			log.Printf("OfferBlobDiff found snapshot %s with a blob, selecting.", baseCandidateIDs[i].String())
 			return &baseCandidateIDs[i], nil
 		}
-		log.Printf("OfferBlobDiff found snapshot %s without a blob, ignoring.", baseCandidateIDs[i].String())
 	}
-	// Nothing matched.  Ask for a diff from the beginning of time.
-	log.Print("OfferBlobDiff found no snapshots with a blob.")
+
+	// Nothing matched, start from empty.
 	return nil, nil
 }
 
 // RequestBlobDiff asks the MDS to share a blob diff which will produce
-// the blob for a particular snapshot.  The repository can select from a slice
+// the blob for a particular snapshot.  The MDS can select from a slice
 // of base blobs on which to base the diff.  It can also decline to share the
 // diff entirely.
 func RequestBlobDiff(mds Store, targetID snapshot.ID, baseCandidateIDs []snapshot.ID) (*snapshot.ID, error) {
@@ -354,7 +368,7 @@ func RequestBlobDiff(mds Store, targetID snapshot.ID, baseCandidateIDs []snapsho
 	}
 
 	if blobID.IsNilID() {
-		return nil, errors.New("Sorry, no can do")
+		return nil, errors.Errorf("Base blob for snapshot %v not found.", targetID)
 	}
 
 	// Otherwise, find the newest base candidate for which we have a blob and select it.
@@ -367,6 +381,7 @@ func RequestBlobDiff(mds Store, targetID snapshot.ID, baseCandidateIDs []snapsho
 			return &baseCandidateIDs[i], nil
 		}
 	}
+
 	// Nothing matched.  Offer a diff from the beginning of time.
 	return nil, nil
 }

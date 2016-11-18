@@ -66,7 +66,7 @@ func (v *VHUT) InitFromFile(filename string) error {
 		return err
 	}
 
-	return v.InitFromString(strings.TrimSpace(string(bytes)))
+	return v.InitFromString(string(trimCtrlAndExtendedBytes(bytes)))
 }
 
 // UpdateRequest adds custom HTTP request header "VH-Authenticate" with vhut as value.
@@ -79,4 +79,22 @@ func (v *VHUT) UpdateRequest(r *http.Request) error {
 	}
 	r.Header.Set(vhutHeaderName, v.vhut)
 	return nil
+}
+
+// trimCtrlAndExtendedBytes removes leading and trailing control and extended bytes,
+// including whitespace (32).
+// This is to strip away characters introduced in download or copy-paste process.
+// Intermediate bytes are left untouched as the token name may include unicode chars.
+func trimCtrlAndExtendedBytes(bytes []byte) []byte {
+	bl, ul := 0, len(bytes)
+	for bl < ul {
+		if bytes[bl] <= 32 || bytes[bl] >= 127 {
+			bl++
+		} else if bytes[ul-1] <= 32 || bytes[ul-1] >= 127 {
+			ul--
+		} else {
+			break
+		}
+	}
+	return bytes[bl:ul]
 }

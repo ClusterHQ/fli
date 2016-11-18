@@ -19,6 +19,7 @@ package datalayer
 import (
 	"encoding/binary"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -35,6 +36,7 @@ import (
 	"github.com/ClusterHQ/fli/dl/record"
 	"github.com/ClusterHQ/fli/errors"
 	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/ClusterHQ/fli/protocols"
@@ -72,7 +74,7 @@ type (
 		DestroyVolume(volumeset.ID, volume.ID) error
 
 		// CreateSnapshot takes a snapshot off a volume
-		CreateSnapshot(volumeset.ID, volume.ID) (blob.ID, error)
+		CreateSnapshot(volumeset.ID, snapshot.ID, volume.ID) (blob.ID, error)
 
 		// DestroySnapshot destroys an existing snapshot
 		DestroySnapshot(blob.ID) error
@@ -128,8 +130,16 @@ type (
 const DifferChannelSize = 20
 
 // UploadBlobDiff ...
-func UploadBlobDiff(s Storage, encdec encdec.Factory, hf dlhash.Factory, vsid volumeset.ID, base blob.ID,
-	targetBlobID blob.ID, token string, dspuburl string) error {
+func UploadBlobDiff(
+	s Storage,
+	encdec encdec.Factory,
+	hf dlhash.Factory,
+	vsid volumeset.ID,
+	base blob.ID,
+	targetBlobID blob.ID,
+	token string,
+	dspuburl string,
+) error {
 	var (
 		baseBlobID blob.ID
 		err        error
@@ -151,6 +161,9 @@ func UploadBlobDiff(s Storage, encdec encdec.Factory, hf dlhash.Factory, vsid vo
 	if err != nil {
 		return err
 	}
+
+	correlationID := protocols.GenerateCorrelationID()
+	protocols.SetCorrelationID(req, correlationID)
 
 	wg := &sync.WaitGroup{}
 	errc := make(chan error, 1)
@@ -198,8 +211,18 @@ func UploadBlobDiff(s Storage, encdec encdec.Factory, hf dlhash.Factory, vsid vo
 }
 
 // DownloadBlobDiff receives records from an HTTP server, apply them to the local backing storage.
-func DownloadBlobDiff(s Storage, encdec encdec.Factory, vsid volumeset.ID, base blob.ID, token string,
-	e executor.Executor, hf dlhash.Factory, dspuburl string) (blob.ID, uint64, error) {
+func DownloadBlobDiff(
+	s Storage,
+	encdec encdec.Factory,
+	vsid volumeset.ID,
+	ssid snapshot.ID,
+	base blob.ID,
+	reuseVolume bool,
+	token string,
+	e executor.Executor,
+	hf dlhash.Factory,
+	dspuburl string,
+) (blob.ID, uint64, error) {
 	var (
 		baseBlobID blob.ID
 		err        error
@@ -218,8 +241,16 @@ func DownloadBlobDiff(s Storage, encdec encdec.Factory, vsid volumeset.ID, base 
 		return blob.NilID(), 0, nil
 	}
 
-	// Create a new volume
-	vid, mntPath, err := s.CreateVolume(vsid, baseBlobID)
+	var (
+		vid     volume.ID
+		mntPath securefilepath.SecureFilePath
+	)
+	// Create a new volume or reuse an existing volume
+	if reuseVolume {
+		vid, mntPath, err = s.GetVolumeForSnapshot(vsid, baseBlobID)
+	} else {
+		vid, mntPath, err = s.CreateVolume(vsid, baseBlobID)
+	}
 	if err != nil {
 		return blob.NilID(), 0, errors.New(err)
 	}
@@ -230,6 +261,8 @@ func DownloadBlobDiff(s Storage, encdec encdec.Factory, vsid volumeset.ID, base 
 		return blob.NilID(), 0, errors.New(err)
 	}
 
+	correlationID := protocols.GenerateCorrelationID()
+	protocols.SetCorrelationID(req, correlationID)
 	client := protocols.GetClient()
 	resp, err := client.Do(req)
 	if err != nil {
@@ -247,12 +280,19 @@ func DownloadBlobDiff(s Storage, encdec encdec.Factory, vsid volumeset.ID, base 
 	}
 
 	// Take a snapshot
-	blobid, err := s.CreateSnapshot(vsid, vid)
+	blobid, err := s.CreateSnapshot(vsid, ssid, vid)
 	if err != nil {
 		return blob.NilID(), 0, err
 	}
 
-	// TODO: What to do with volume?
+	// Clean up when finished, destroy the volume created for the upload.
+	// Error is logged, no need to return to caller.
+	// Note: This still won't remove the volume set because how ZFS works. See zfs.go for details.
+	err = s.DestroyVolume(vsid, vid)
+	if err != nil {
+		log.Printf("Delete volume error %v after download volume set %v volume %v.", err, vsid, vid)
+	}
+
 	space, err := s.GetVolumesetSpace(vsid)
 	if err != nil {
 		return blob.NilID(), 0, err

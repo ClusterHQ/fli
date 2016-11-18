@@ -97,7 +97,7 @@ func (r *Response) SetGenericServerError() {
 	r.ErrorMessage = "An error occurred, please try again later"
 }
 
-// SetUnauthorizedError sets an error message indicating that the current
+// SetUnauthenticatedError sets an error message indicating that the current
 // authenticated user is not authorized for the current request. The Success
 // and ErrorMessage fields are set.
 func (r *Response) SetUnauthenticatedError() {
@@ -139,7 +139,7 @@ func (r *Response) Write(status int, w http.ResponseWriter) error {
 		w.WriteHeader(http.StatusInternalServerError)
 		// write a minimal response
 		w.Write([]byte(`{"success":false,"error_message":"internal error"}`))
-		return fmt.Errorf("Failed to marshal response JSON: %v\n", err)
+		return fmt.Errorf("Failed to marshal response JSON: %v", err)
 	}
 
 	w.Header().Set(HeaderRequestID, r.RequestID.String())
@@ -148,7 +148,7 @@ func (r *Response) Write(status int, w http.ResponseWriter) error {
 	_, err = w.Write(body)
 	if err != nil {
 		// probably the client disconnected
-		return fmt.Errorf("Failed to write response JSON: %v\n", err)
+		return fmt.Errorf("Failed to write response JSON: %v", err)
 	}
 
 	return nil

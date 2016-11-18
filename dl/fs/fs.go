@@ -28,6 +28,7 @@ import (
 	"github.com/ClusterHQ/fli/dl/datalayer"
 	"github.com/ClusterHQ/fli/dl/filediffer/variableblk"
 	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/ClusterHQ/fli/securefilepath"
@@ -133,13 +134,13 @@ func (s *fsStorage) GetVolumeForSnapshot(vsid volumeset.ID, id blob.ID) (volume.
 	return s.CreateVolume(vsid, id)
 }
 
-func (s *fsStorage) CreateSnapshot(vsid volumeset.ID, id volume.ID) (blob.ID, error) {
+func (s *fsStorage) CreateSnapshot(vsid volumeset.ID, ssid snapshot.ID, vid volume.ID) (blob.ID, error) {
 	blobID := blob.NewID(newRandomID())
 	blobPath, err := s.blobs.Child(blobID.String())
 	if err != nil {
 		return blob.NilID(), err
 	}
-	vol, err := s.volumeMountPointPath(id)
+	vol, err := s.volumeMountPointPath(vid)
 	if err != nil {
 		return blob.NilID(), err
 	}

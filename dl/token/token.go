@@ -17,12 +17,10 @@
 package token
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/gob"
 	"time"
 
 	"github.com/ClusterHQ/fli/meta/blob"
+	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volumeset"
 )
 
@@ -57,6 +55,9 @@ type (
 	UploadToken struct {
 		// VolumeSetID is the volume set ID the blob belongs to
 		VolSetID volumeset.ID
+
+		// SnapshotID is the snapshot ID the blob belongs to
+		SnapshotID snapshot.ID
 
 		// BaseBlobID identifies the blob on the receiving side
 		// where the diff can be applied.  This doesn't change the sending
@@ -101,11 +102,6 @@ const (
 	Download
 )
 
-func init() {
-	gob.Register(DownloadToken{})
-	gob.Register(UploadToken{})
-}
-
 // String ...
 func (s Server) String() string {
 	return string(s)
@@ -116,131 +112,30 @@ func (k Key) String() string {
 	return string(k)
 }
 
-// encrypt encrypts a token
-// Note: Exact method to be determined
-func encrypt(token interface{}) ([]byte, error) {
-	var bbuf bytes.Buffer
-	enc := gob.NewEncoder(&bbuf)
-	err := enc.Encode(&token)
-	if err != nil {
-		return bbuf.Bytes(), err
-	}
-	err = enc.Encode(&token)
-	return bbuf.Bytes(), err
-}
-
-// decrypt decrypts a token
-func decrypt(encrypted []byte) (interface{}, error) {
-	enc := gob.NewDecoder(bytes.NewBuffer(encrypted))
-	var token interface{}
-	err := enc.Decode(&token)
-	return token, err
-}
-
-// toKey is a helper function that converts a token to a key
-func toKey(server Server, token interface{}) (Key, error) {
-	var (
-		bbuf bytes.Buffer
-		key  Key
-	)
-
-	// Encrypt
-	encrypted, err := encrypt(token)
-	if err != nil {
-		return key, err
-	}
-
-	// Add server to key
-	enc := gob.NewEncoder(&bbuf)
-	err = enc.Encode(server)
-	if err != nil {
-		return key, err
-	}
-
-	// Add encrypted token to key
-	err = enc.Encode(encrypted)
-	if err != nil {
-		return key, err
-	}
-
-	// To network transferable format
-	return Key(base64.StdEncoding.EncodeToString(bbuf.Bytes())), nil
-}
-
-// ToKey transforms an upload token to a key
-func (token UploadToken) ToKey(server Server) (Key, error) {
-	return toKey(server, token)
-}
-
-// ToKey transforms a download token to a key
-func (token DownloadToken) ToKey(server Server) (Key, error) {
-	return toKey(server, token)
-}
-
-func expired(t time.Time) bool {
-	return t.Before(time.Now())
-}
-
-// Expired returns true if the token has expired
-func (token UploadToken) Expired() bool {
-	return expired(token.ExpirationTime)
-}
-
-// Expired returns true if the token has expired
-func (token DownloadToken) Expired() bool {
-	return expired(token.ExpirationTime)
-}
-
-// Token extracts the original token from a key
-func (k Key) Token() (interface{}, error) {
-	// Converts key to its original format
-	bbuf, err := base64.StdEncoding.DecodeString(k.String())
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract server
-	var server Server
-	dec := gob.NewDecoder(bytes.NewBuffer(bbuf))
-	err = dec.Decode(&server)
-	if err != nil {
-		return nil, err
-	}
-
-	// Extract encrypted token
-	var encrypted []byte
-	err = dec.Decode(&encrypted)
-	if err != nil {
-		return nil, err
-	}
-
-	// Decrypt token
-	return decrypt(encrypted)
-}
-
-// Server extracts the server information from a key
-func (k Key) Server() (Server, error) {
-	var server Server
-	// Key to its original format
-	bbuf, err := base64.StdEncoding.DecodeString(k.String())
-	if err != nil {
-		return server, err
-	}
-
-	// Extract server
-	dec := gob.NewDecoder(bytes.NewBuffer(bbuf))
-	err = dec.Decode(&server)
-	return server, err
-}
-
-// Light wrappers to hide the expiration time stuff
-
 // NewUploadToken returns a new upload token
-func NewUploadToken(vsid volumeset.ID, b blob.ID, expiresInSecond time.Duration) UploadToken {
-	return UploadToken{vsid, b, time.Now().Add(expiresInSecond * time.Second)}
+func NewUploadToken(
+	vsid volumeset.ID,
+	ssid snapshot.ID,
+	b blob.ID,
+	expiresInSecond time.Duration,
+) UploadToken {
+	return UploadToken{
+		VolSetID:       vsid,
+		SnapshotID:     ssid,
+		BaseBlobID:     b,
+		ExpirationTime: time.Now().Add(expiresInSecond * time.Second),
+	}
 }
 
 // NewDownloadToken returns a new upload token
-func NewDownloadToken(base, target blob.ID, expiresInSecond time.Duration) DownloadToken {
-	return DownloadToken{base, target, time.Now().Add(expiresInSecond * time.Second)}
+func NewDownloadToken(
+	base,
+	target blob.ID,
+	expiresInSecond time.Duration,
+) DownloadToken {
+	return DownloadToken{
+		RemoteBaseBlobID:   base,
+		RemoteTargetBlobID: target,
+		ExpirationTime:     time.Now().Add(expiresInSecond * time.Second),
+	}
 }
