@@ -1,0 +1,9 @@
+language: go
+
+go:
+  - 1.7.4
+
+dist: trusty
+
+script:
+  - go build -o /tmp/fli ./client/cmd/fli

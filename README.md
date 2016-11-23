@@ -16,7 +16,7 @@ You can use Fli to manage these snapshots locally without using FlockerHub at al
 
 # Installation
 
-It's easy to get started using Fli because Fli is distributed on the [DockerHub](https://hub.docker.com/) as a container image called ``clusterhq/fli`` so you just need to runn ```docker pull clusterhq/fli```. You can also download the Go binary directly by running ```curl -L "https://download.clusterhq.com/releases/fli/<version>" > /usr/local/bin/fli
+It's easy to get started using Fli because Fli is distributed on the [DockerHub](https://hub.docker.com/) as a container image called ``clusterhq/fli`` so you just need to run ```docker pull clusterhq/fli```. You can also download the Go binary directly by running ```curl -L "https://download.clusterhq.com/releases/fli/<version>" > /usr/local/bin/fli
 chmod +x /usr/local/bin/fli<```
 
 Using Fli requires a few dependencies so make sure you have these on your system before getting started.
@@ -26,6 +26,10 @@ Using Fli requires a few dependencies so make sure you have these on your system
 - [ZFS kernel modules and ZFS utilities](https://fli-docs.clusterhq.com/en/latest/GettingStarted.html#zfs-kernel-modules-and-zfs-utilities)
 
 [View the complete documentation for Fli](https://fli-docs.clusterhq.com/en/latest/) or read on for some more background on the project.
+
+## Build Fli from source
+
+Fli can also be built from source. Instruction to build from source can be found [here](https://fli-docs.clusterhq.com/en/latest/Contributing.html#how-to-build-from-source).
 
 # Why use Fli?
 
