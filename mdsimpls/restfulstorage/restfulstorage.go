@@ -547,46 +547,48 @@ func (rs *MetadataStorage) UpdateVolumeSet(vsCur, vsInit *volumeset.VolumeSet) (
 	return respGetVSConfl.VSMetaConfl, nil
 }
 
-// UpdateSnapshot ...
-func (rs *MetadataStorage) UpdateSnapshot(snCur, snInit *snapshot.Snapshot) (metastore.SnapMetaConflict, error) {
-	payload, err := json.Marshal(protocols.ReqUpdateSnapshot{SnapCur: snCur, SnapInit: snInit})
+// PullVolumeSet implements the metastore interface
+func (rs *MetadataStorage) PullVolumeSet(vsCur, vsInit *volumeset.VolumeSet) (metastore.VSMetaConflict, error) {
+	payload, err := json.Marshal(protocols.ReqUpdateVolumeSet{VolSetCur: vsCur, VolSetInit: vsInit})
+	noConflict := metastore.VSMetaConflict{}
+
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 
-	u, err := rs.hubAddress.RootResource.Parse(protocols.HTTPPathUpdateSnapshot)
+	u, err := rs.hubAddress.RootResource.Parse(protocols.HTTPPathPullVolumeSet)
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 
-	req, err := rs.newAuthHTTPRequest("POST", u.String(), bytes.NewReader(payload))
+	req, err := rs.newAuthHTTPRequest("GET", u.String(), bytes.NewReader(payload))
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 
 	httpResp, err := rs.httpClient.Do(req)
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		return metastore.SnapMetaConflict{}, responseToError(httpResp)
+		return noConflict, responseToError(httpResp)
 	}
 
 	var resp rest.Response
 	err = json.NewDecoder(httpResp.Body).Decode(&resp)
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 
-	var respGetSnapConfl protocols.RespUpdateSnapshot
-	err = resp.GetResult(&respGetSnapConfl)
+	var respGetVSConfl protocols.RespUpdateVolumeSet
+	err = resp.GetResult(&respGetVSConfl)
 	if err != nil {
-		return metastore.SnapMetaConflict{}, err
+		return noConflict, err
 	}
 
-	return respGetSnapConfl.SnapMetaConfl, nil
+	return respGetVSConfl.VSMetaConfl, nil
 }
 
 // UpdateSnapshots implements metastore interface
@@ -602,6 +604,48 @@ func (rs *MetadataStorage) UpdateSnapshots(snaps []*metastore.SnapshotPair) ([]m
 	}
 
 	req, err := rs.newAuthHTTPRequest("POST", u.String(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+
+	httpResp, err := rs.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, responseToError(httpResp)
+	}
+
+	var resp rest.Response
+	err = json.NewDecoder(httpResp.Body).Decode(&resp)
+	if err != nil {
+		return nil, err
+	}
+
+	var respGetSnapConfls protocols.RespUpdateSnapshots
+	err = resp.GetResult(&respGetSnapConfls)
+	if err != nil {
+		return nil, err
+	}
+
+	return respGetSnapConfls.SnapMetaConfls, nil
+}
+
+// PullSnapshots implements metastore interface
+func (rs *MetadataStorage) PullSnapshots(snaps []*metastore.SnapshotPair) ([]metastore.SnapMetaConflict, error) {
+	payload, err := json.Marshal(protocols.ReqUpdateSnapshots{Snaps: snaps})
+	if err != nil {
+		return nil, err
+	}
+
+	u, err := rs.hubAddress.RootResource.Parse(protocols.HTTPPathPullSnapshots)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := rs.newAuthHTTPRequest("GET", u.String(), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

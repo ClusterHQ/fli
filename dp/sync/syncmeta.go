@@ -20,7 +20,6 @@ import (
 	"log"
 
 	"github.com/ClusterHQ/fli/dp/metastore"
-	meta "github.com/ClusterHQ/fli/dp/metastore"
 	"github.com/ClusterHQ/fli/errors"
 	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volumeset"
@@ -29,20 +28,23 @@ import (
 // MetaConflicts - list of conflicts for vs, snaps, branches.
 // Used for reporting to the user.
 type MetaConflicts struct {
-	VsC []meta.VSMetaConflict
-	SnC []meta.SnapMetaConflict
-	BrC []meta.BranchMetaConflict
+	VsC []metastore.VSMetaConflict
+	SnC []metastore.SnapMetaConflict
+	BrC []metastore.BranchMetaConflict
 }
 
-// UpdateTgtVSMeta updates meta data of a volumeset using the three way sync
-func UpdateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflict, error) {
+func volSetMeta(
+	s metastore.MdsTriplet,
+	vsid volumeset.ID,
+	pullOnly bool,
+) ([]metastore.VSMetaConflict, error) {
 	var (
 		vsCur, vsInit *volumeset.VolumeSet
 		err           error
-		cnfl          []meta.VSMetaConflict
+		c             metastore.VSMetaConflict
 	)
 
-	vsCur, err = meta.GetVolumeSet(s.Cur, vsid)
+	vsCur, err = metastore.GetVolumeSet(s.Cur, vsid)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +54,7 @@ func UpdateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflic
 	}
 
 	if s.Init != nil {
-		vsInit, err = meta.GetVolumeSet(s.Init, vsid)
+		vsInit, err = metastore.GetVolumeSet(s.Init, vsid)
 		if err != nil {
 			if _, ok := err.(*metastore.ErrVolumeSetNotFound); !ok {
 				return nil, err
@@ -60,29 +62,41 @@ func UpdateTgtVSMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.VSMetaConflic
 		}
 	}
 
-	vsConfl, err := s.Tgt.UpdateVolumeSet(vsCur, vsInit)
+	if pullOnly {
+		c, err = s.Tgt.PullVolumeSet(vsCur, vsInit)
+	} else {
+		c, err = s.Tgt.UpdateVolumeSet(vsCur, vsInit)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	if !vsConfl.IsEmpty() {
-		cnfl = append(cnfl, vsConfl)
-		_, err := s.Cur.UpdateVolumeSet(vsConfl.Tgt, nil)
-		if err != nil {
-			return nil, err
+	if c.IsEmpty() {
+		if !vsCur.MetaEqual(vsInit) {
+			_, err = s.Init.UpdateVolumeSet(vsCur, nil)
 		}
-
-		_, err = s.Init.UpdateVolumeSet(vsConfl.Tgt, nil)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
-	return cnfl, nil
+	_, err = s.Cur.UpdateVolumeSet(c.Tgt, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.Init.UpdateVolumeSet(c.Tgt, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return []metastore.VSMetaConflict{c}, nil
 }
 
-// UpdateTgtSnapMeta upates the metadata of the snapshots common between source and target
-func UpdateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaConflict, error) {
+// snapshotMeta upates the metadata of the snapshots common between source and target
+func snapshotMeta(
+	s metastore.MdsTriplet,
+	vsid volumeset.ID,
+	pullOnly bool,
+) ([]metastore.SnapMetaConflict, error) {
 	// Note: There is different cases for meta sync:
 	//       1. Source and target are quiet different in term of snapshots.
 	//       2. Source and target largely have the same snapshots.
@@ -93,7 +107,6 @@ func UpdateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 	//       necessary snapshots approach uses less memory.
 	//       To switch between the two approaches, use the correct method GetSnapshotIDs() or
 	//       GetSnapshots(), and build the map accordingly.
-
 	snapsCur, err := metastore.GetSnapshots(s.Cur, snapshot.Query{
 		VolSetID: vsid,
 	})
@@ -155,7 +168,12 @@ func UpdateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 		return nil, nil
 	}
 
-	conflicts, err := s.Tgt.UpdateSnapshots(snapPairs)
+	var conflicts []metastore.SnapMetaConflict
+	if pullOnly {
+		conflicts, err = s.Tgt.PullSnapshots(snapPairs)
+	} else {
+		conflicts, err = s.Tgt.UpdateSnapshots(snapPairs)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -225,64 +243,60 @@ func UpdateTgtSnapMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.SnapMetaCon
 	return conflicts, nil
 }
 
-// UpdateTgtBranchMeta updates branch meta data
-func UpdateTgtBranchMeta(s meta.MdsTriplet, vsid volumeset.ID) ([]meta.BranchMetaConflict, error) {
+func branchMeta(
+	s metastore.MdsTriplet,
+	vsid volumeset.ID,
+) ([]metastore.BranchMetaConflict, error) {
 	// TODO: to be implemented
-	return []meta.BranchMetaConflict{}, nil
+	return []metastore.BranchMetaConflict{}, nil
 }
 
-// CheckVSConflict ...
-/**********************************************************************************************
-*
-*Conflicts for snapshots and volumeset metadata are resolved thusly:
-*
-* init == target       current == init      target == current       state              action
-*
-* true||false            true||false            true                tgt won't change     none
-* true                   false                  false               update               use current
-* false                  false                  false               conflict             use tgt, report conflict
-* false                  true                   false               tgt data changed     use tgt
-*                                                                   but not client's
-*
-* for the purpose of one-way sync no action is the same a 'use tgt'
-************************************************************************************************/
+// CheckVSConflict checks and returns action code for sync based on the set of volume set objects
+// Conflicts for snapshots and volumeset metadata are resolved as the following:
+// init == target       current == init      target == current   state                action
+// true||false          true||false          true                tgt won't change     none
+// true                 false                false               update               use current
+// false                false                false               conflict             use tgt, report conflict
+// false                true                 false               tgt data changed     use tgt
+//                                                               but not current's
+// for the purpose of one-way sync no action is the same as 'use tgt'
 func CheckVSConflict(vsTgt, vsCur, vsInit *volumeset.VolumeSet) metastore.ResolveStatus {
 	if vsCur.MetaEqual(vsInit) {
 		if vsCur.MetaEqual(vsTgt) {
-			return meta.NoAction
+			return metastore.NoAction
 		}
-		return meta.UseTgtNoConflict
+		return metastore.UseTgtNoConflict
 	}
 
 	if vsTgt.MetaEqual(vsInit) {
-		return meta.UseCurrent
+		return metastore.UseCurrent
 	}
 
 	if vsTgt.MetaEqual(vsCur) {
-		return meta.UseTgtNoConflict
+		return metastore.UseTgtNoConflict
 	}
 
-	return meta.UseTgtConflict
+	return metastore.UseTgtConflict
 }
 
 // CheckSnapConflict ...
 func CheckSnapConflict(snapTgt, snapCur, snapInit *snapshot.Snapshot) metastore.ResolveStatus {
 	if snapCur.Equals(snapInit) {
 		if snapCur.Equals(snapTgt) {
-			return meta.NoAction
+			return metastore.NoAction
 		}
-		return meta.UseTgtNoConflict
+		return metastore.UseTgtNoConflict
 	}
 
 	if snapTgt.Equals(snapInit) {
-		return meta.UseCurrent
+		return metastore.UseCurrent
 	}
 
 	if snapTgt.Equals(snapCur) {
-		return meta.UseTgtNoConflict
+		return metastore.UseTgtNoConflict
 	}
 
-	return meta.UseTgtConflict
+	return metastore.UseTgtConflict
 }
 
 // Report prints out conflicts.

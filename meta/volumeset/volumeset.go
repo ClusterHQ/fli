@@ -291,12 +291,11 @@ func (vs *VolumeSet) RetrieveKnownKeys() {
 
 // SetOwnerUUID sets owner uuid from name and current client and creator
 func (vs *VolumeSet) SetOwnerUUID(currentUser string) error {
-	//owner uuid is set, nothing to do
 	if vs.Owner != "" {
 		return nil
 	}
 
-	//owneruuid and ownername will always match. so we have no name either.
+	// Owneruuid and ownername will always match. so we have no name either.
 	// so just use the current user. if user is not there, set it to creator.
 	vs.Owner = currentUser
 
@@ -315,12 +314,11 @@ func (vs *VolumeSet) SetOwnerUUID(currentUser string) error {
 
 // SetCreatorUUID sets creator uuid given the current user
 func (vs *VolumeSet) SetCreatorUUID(currentUser string) error {
-	//if uuid is already there, nothing to do
 	if vs.Creator != "" {
 		return nil
 	}
 
-	//client can not change creator, so we know it is going to be the current user
+	// Client can not change creator, so we know it is going to be the current user
 	vs.Creator = currentUser
 	return nil
 }

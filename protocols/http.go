@@ -262,6 +262,16 @@ const (
 	HTTPPathStats = "stats"
 	// HTTPPathNewDataServer put data server url
 	HTTPPathNewDataServer = "dataserver"
+	// HTTPPathUpdateVolumeSet ...
+	HTTPPathUpdateVolumeSet = "update/volumeset"
+	// HTTPPathPullVolumeSet ...
+	HTTPPathPullVolumeSet = "pull/volumeset"
+	// HTTPPathUpdateSnapshot ...
+	HTTPPathUpdateSnapshot = "update/snapshot"
+	// HTTPPathUpdateSnapshots ...
+	HTTPPathUpdateSnapshots = "update/snapshots"
+	// HTTPPathPullSnapshots ...
+	HTTPPathPullSnapshots = "pull/snapshots"
 
 	// Requests from client to data server
 
@@ -286,14 +296,7 @@ const (
 	// HTTPPathDownloadStatus download status
 	HTTPPathDownloadStatus = "download/status"
 
-	// HTTPPathUpdateVolumeSet ...
-	HTTPPathUpdateVolumeSet = "update/volumeset"
-
-	// HTTPPathUpdateSnapshot ...
-	HTTPPathUpdateSnapshot = "update/snapshot"
-
-	// HTTPPathUpdateSnapshots ...
-	HTTPPathUpdateSnapshots = "update/snapshots"
+	// Misc
 
 	// HTTPPathAnalytics ...
 	HTTPPathAnalytics = "analytics"

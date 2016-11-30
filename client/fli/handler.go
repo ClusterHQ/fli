@@ -21,9 +21,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
-
 	"runtime"
+	"strings"
 
 	dlbin "github.com/ClusterHQ/fli/dl/encdec/binary"
 	dladler32 "github.com/ClusterHQ/fli/dl/hash/adler32"
@@ -40,6 +39,11 @@ import (
 	"github.com/ClusterHQ/fli/protocols"
 	"github.com/ClusterHQ/fli/securefilepath"
 	"github.com/ClusterHQ/fli/vh/cauthn"
+)
+
+const (
+	oneWay = true
+	twoWay = false
 )
 
 // Handler ...
@@ -86,7 +90,7 @@ func (c *Handler) getMdsInitial() (metastore.Client, error) {
 
 // Clone create a volume from source which could be a snapshot or a branch if more than 1 match found for branch & snapshot together
 // should return the matching result found
-func (c *Handler) Clone(attributes string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Clone(attributes string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) < 1 || len(args) > 2 {
@@ -135,14 +139,14 @@ func (c *Handler) Clone(attributes string, full bool, args []string) (CmdOutput,
 	}
 
 	if len(brsFound)+len(snapsFound) > 1 {
-		cmdOut.Op = append(cmdOut.Op, Result{Str: "Ambigous matches found for - " + source})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: "Ambigous matches found for - " + source})
 
 		if len(brsFound) > 0 {
-			res := Result{Tab: branchTable(0, full, brsFound)}
+			res := CmdResult{Tab: branchTable(0, full, brsFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(snapsFound) > 0 {
-			res := Result{Tab: snapshotTable(0, full, snapsFound)}
+			res := CmdResult{Tab: snapshotTable(0, full, snapsFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 	} else {
@@ -172,14 +176,14 @@ func (c *Handler) Clone(attributes string, full bool, args []string) (CmdOutput,
 			return cmdOut, err
 		}
 
-		cmdOut.Op = append(cmdOut.Op, Result{Str: vol.MntPath.Path()})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: vol.MntPath.Path()})
 	}
 
 	return cmdOut, nil
 }
 
 // Snapshot ...
-func (c *Handler) Snapshot(branchName string, newBranch bool, attributes string, description string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Snapshot(branchName string, newBranch bool, attributes string, description string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if branchName != "" && newBranch {
@@ -217,7 +221,7 @@ func (c *Handler) Snapshot(branchName string, newBranch bool, attributes string,
 
 	if len(vols) > 1 {
 		cmdOut.Op = append(cmdOut.Op,
-			Result{Str: "Ambigous matches found for - " + source,
+			CmdResult{Str: "Ambigous matches found for - " + source,
 				Tab: volumeTables(0, full, vols)},
 		)
 	} else {
@@ -246,14 +250,14 @@ func (c *Handler) Snapshot(branchName string, newBranch bool, attributes string,
 			return cmdOut, err
 		}
 
-		cmdOut.Op = append(cmdOut.Op, Result{Str: snap.ID.String()})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: snap.ID.String()})
 	}
 
 	return cmdOut, nil
 }
 
 // Create ...
-func (c *Handler) Create(attributes string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Create(attributes string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) < 1 || len(args) > 2 {
@@ -308,7 +312,7 @@ func (c *Handler) Create(attributes string, full bool, args []string) (CmdOutput
 
 	if len(volsets) > 1 {
 		cmdOut.Op = append(cmdOut.Op,
-			Result{Str: "Ambigous matches found for - " + volsetName,
+			CmdResult{Str: "Ambigous matches found for - " + volsetName,
 				Tab: volumesetTable(0, full, volsets),
 			},
 		)
@@ -327,14 +331,14 @@ func (c *Handler) Create(attributes string, full bool, args []string) (CmdOutput
 			return cmdOut, err
 		}
 
-		cmdOut.Op = append(cmdOut.Op, Result{Str: vol.MntPath.Path()})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: vol.MntPath.Path()})
 	}
 
 	return cmdOut, nil
 }
 
 // Init ...
-func (c *Handler) Init(attributes string, description string, args []string) (CmdOutput, error) {
+func (c *Handler) Init(attributes string, description string, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) > 1 {
@@ -376,7 +380,7 @@ func (c *Handler) Init(attributes string, description string, args []string) (Cm
 		return cmdOut, err
 	}
 
-	cmdOut.Op = append(cmdOut.Op, Result{Str: vs.ID.String()})
+	cmdOut.Op = append(cmdOut.Op, CmdResult{Str: vs.ID.String()})
 
 	return cmdOut, nil
 }
@@ -412,8 +416,7 @@ func (c *Handler) getRestfulMds(fHub, tokenfile string) (*restfulstorage.Metadat
 	return restfulstorage.Create(protocols.GetClient(), fHubURL, fhut)
 }
 
-// Sync ...
-func (c *Handler) Sync(url string, token string, all bool, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) sync(url string, token string, all bool, full bool, args []string, syncDirection bool) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if (len(args) != 1 && !all) || (all && len(args) != 0) {
@@ -489,7 +492,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			return cmdOut, ErrVolSetNotFound{Name: volsetName}
 		} else if len(volsets) > 1 {
 			cmdOut.Op = append(cmdOut.Op,
-				Result{Str: "Ambigous matches found for - " + volsetName,
+				CmdResult{Str: "Ambigous matches found for - " + volsetName,
 					Tab: volumesetTable(0, full, volsets),
 				},
 			)
@@ -502,15 +505,15 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			return cmdOut, err
 		}
 
-		conflicts, err := sync.MetadataSync(fhMds, mdsCurr, mdsInit, volset.ID, false)
+		conflicts, err := sync.Do(fhMds, mdsCurr, mdsInit, volset.ID, syncDirection)
 		if err != nil {
 			return cmdOut, err
 		}
 
 		if conflicts.HasConflicts() {
-			cmdOut.Op = append(cmdOut.Op, Result{Str: fmt.Sprintf("Volumeset  %v has conflicts", volset.ID.String())})
+			cmdOut.Op = append(cmdOut.Op, CmdResult{Str: fmt.Sprintf("Volumeset  %v has conflicts", volset.ID.String())})
 			for _, v := range conflicts.VsC {
-				res := Result{}
+				res := CmdResult{}
 				res.Str = "VolumeSet conflict:"
 				res.Tab = append(res.Tab, []string{"Initial version:", fmt.Sprintf("%v", v.Init)})
 				res.Tab = append(res.Tab, []string{"Current version (overwritten by target one):", fmt.Sprintf("%v", v.Cur)})
@@ -520,7 +523,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			}
 
 			for _, s := range conflicts.SnC {
-				res := Result{}
+				res := CmdResult{}
 				res.Str = "Snapshot conflict:"
 				res.Tab = append(res.Tab, []string{"Initial version:", fmt.Sprintf("%v", s.Init)})
 				res.Tab = append(res.Tab, []string{"Current version (overwritten by target one):", fmt.Sprintf("%v", s.Cur)})
@@ -530,7 +533,7 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 			}
 
 			for _, b := range conflicts.BrC {
-				res := Result{}
+				res := CmdResult{}
 				res.Str = "Branch conflict:"
 				res.Tab = append(res.Tab, []string{"Initial version:", fmt.Sprintf("%v", b.Init)})
 				res.Tab = append(res.Tab, []string{"Current version (overwritten by target one):", fmt.Sprintf("%v", b.Cur)})
@@ -544,8 +547,18 @@ func (c *Handler) Sync(url string, token string, all bool, full bool, args []str
 	return cmdOut, nil
 }
 
+// Sync ...
+func (c *Handler) Sync(url string, token string, all bool, full bool, args []string) (Result, error) {
+	return c.sync(url, token, all, full, args, twoWay)
+}
+
+// Fetch ...
+func (c *Handler) Fetch(url string, token string, all bool, full bool, args []string) (Result, error) {
+	return c.sync(url, token, all, full, args, oneWay)
+}
+
 // Push ...
-func (c *Handler) Push(url string, token string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Push(url string, token string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) != 1 {
@@ -587,14 +600,14 @@ func (c *Handler) Push(url string, token string, full bool, args []string) (CmdO
 	}
 
 	if len(volsets)+len(snaps) > 1 {
-		cmdOut.Op = append(cmdOut.Op, Result{Str: "Ambigous matches found for - " + name})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: "Ambigous matches found for - " + name})
 
 		if len(volsets) > 0 {
-			res := Result{Tab: volumesetTable(0, full, volsets)}
+			res := CmdResult{Tab: volumesetTable(0, full, volsets)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(snaps) > 0 {
-			res := Result{Tab: snapshotTable(0, full, snaps)}
+			res := CmdResult{Tab: snapshotTable(0, full, snaps)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
@@ -625,7 +638,7 @@ func (c *Handler) Push(url string, token string, full bool, args []string) (CmdO
 }
 
 // Pull ...
-func (c *Handler) Pull(url string, token string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Pull(url string, token string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) != 1 {
@@ -667,14 +680,14 @@ func (c *Handler) Pull(url string, token string, full bool, args []string) (CmdO
 	}
 
 	if len(volsets)+len(snaps) > 1 {
-		cmdOut.Op = append(cmdOut.Op, Result{Str: "Ambigous matches found for - " + name})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: "Ambigous matches found for - " + name})
 
 		if len(volsets) > 0 {
-			res := Result{Tab: volumesetTable(0, full, volsets)}
+			res := CmdResult{Tab: volumesetTable(0, full, volsets)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(snaps) > 0 {
-			res := Result{Tab: snapshotTable(0, full, snaps)}
+			res := CmdResult{Tab: snapshotTable(0, full, snaps)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
@@ -705,7 +718,7 @@ func (c *Handler) Pull(url string, token string, full bool, args []string) (CmdO
 }
 
 // Update ...
-func (c *Handler) Update(name string, attributes string, description string, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Update(name string, attributes string, description string, full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) != 1 {
@@ -741,25 +754,25 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 		return cmdOut, errors.Errorf("No matching objects found for '%s'", source)
 
 	case len(brFound)+len(snapFound)+len(volFound)+len(volsetFound) > 1:
-		cmdOut.Op = append(cmdOut.Op, Result{Str: "Ambigous matches found for - " + source})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: "Ambigous matches found for - " + source})
 
 		if len(volsetFound) > 0 {
-			res := Result{Tab: volumesetTable(0, full, volsetFound)}
+			res := CmdResult{Tab: volumesetTable(0, full, volsetFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
 		if len(snapFound) > 0 {
-			res := Result{Tab: snapshotTable(0, full, snapFound)}
+			res := CmdResult{Tab: snapshotTable(0, full, snapFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
 		if len(brFound) > 0 {
-			res := Result{Tab: branchTable(0, full, brFound)}
+			res := CmdResult{Tab: branchTable(0, full, brFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
 		if len(volFound) > 0 {
-			res := Result{Tab: volumeTables(0, full, volFound)}
+			res := CmdResult{Tab: volumeTables(0, full, volFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
@@ -767,6 +780,10 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 		switch {
 		case len(volsetFound) == 1:
 			if name != "" {
+				if err := validateName(name); err != nil {
+					return cmdOut, err
+				}
+
 				volsetFound[0].Name = name
 			}
 			if attributes != "" {
@@ -788,6 +805,10 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 
 		case len(snapFound) == 1:
 			if name != "" {
+				if err := validateName(name); err != nil {
+					return cmdOut, err
+				}
+
 				snapFound[0].Name = name
 			}
 			if attributes != "" {
@@ -825,6 +846,10 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 
 		default:
 			if name != "" {
+				if err := validateName(name); err != nil {
+					return cmdOut, err
+				}
+
 				volFound[0].Name = name
 			}
 			if attributes != "" {
@@ -850,7 +875,7 @@ func (c *Handler) Update(name string, attributes string, description string, ful
 }
 
 // Remove ...
-func (c *Handler) Remove(full bool, args []string) (CmdOutput, error) {
+func (c *Handler) Remove(full bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) != 1 {
@@ -887,22 +912,22 @@ func (c *Handler) Remove(full bool, args []string) (CmdOutput, error) {
 		return cmdOut, errors.Errorf("No matching objects found for '%s'", source)
 
 	case len(brFound)+len(snapFound)+len(volFound)+len(volsetFound) > 1:
-		cmdOut.Op = append(cmdOut.Op, Result{Str: "Ambigous matches found for - " + source})
+		cmdOut.Op = append(cmdOut.Op, CmdResult{Str: "Ambigous matches found for - " + source})
 
 		if len(volsetFound) > 0 {
-			res := Result{Tab: volumesetTable(0, full, volsetFound)}
+			res := CmdResult{Tab: volumesetTable(0, full, volsetFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(snapFound) > 0 {
-			res := Result{Tab: snapshotTable(0, full, snapFound)}
+			res := CmdResult{Tab: snapshotTable(0, full, snapFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(brFound) > 0 {
-			res := Result{Tab: branchTable(0, full, brFound)}
+			res := CmdResult{Tab: branchTable(0, full, brFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 		if len(volFound) > 0 {
-			res := Result{Tab: volumeTables(0, full, volFound)}
+			res := CmdResult{Tab: volumeTables(0, full, volFound)}
 			cmdOut.Op = append(cmdOut.Op, res)
 		}
 
@@ -934,7 +959,14 @@ func (c *Handler) Remove(full bool, args []string) (CmdOutput, error) {
 }
 
 // List ...
-func (c *Handler) List(all bool, volumeFlag bool, snapshotFlag bool, branchFlag bool, full bool, args []string) (CmdOutput, error) {
+func (c *Handler) List(
+	all bool,
+	volumeFlag bool,
+	snapshotFlag bool,
+	branchFlag bool,
+	full bool,
+	args []string,
+) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) > 1 {
@@ -964,8 +996,10 @@ func (c *Handler) List(all bool, volumeFlag bool, snapshotFlag bool, branchFlag 
 
 	// report only the volumesets
 	if !all && !volumeFlag && !snapshotFlag && !branchFlag && search == "" {
-		cmdOut.Op = append(cmdOut.Op, Result{Tab: volumesetTable(0, full, vsFound)})
-		return cmdOut, nil
+		return ListResult{
+			full: full,
+			vols: vsFound,
+		}, nil
 	}
 
 	// display all objects of vs
@@ -1116,15 +1150,17 @@ func (c *Handler) List(all bool, volumeFlag bool, snapshotFlag bool, branchFlag 
 		}
 	}
 
+	result := ListResult{full: full}
 	for _, vsObj := range vsObjMap {
-		cmdOut.Op = append(cmdOut.Op, displayObjects(vsObj, full)...)
+		obj := vsObj
+		result.vsObjs = append(result.vsObjs, &obj)
 	}
 
-	return cmdOut, nil
+	return result, nil
 }
 
 // Setup is called when fli is setting up the system
-func (c *Handler) Setup(zpool string, force bool, args []string) (CmdOutput, error) {
+func (c *Handler) Setup(zpool string, force bool, args []string) (Result, error) {
 	if len(args) > 0 {
 		return CmdOutput{}, ErrInvalidArgs{}
 	}
@@ -1190,7 +1226,7 @@ func (c *Handler) Setup(zpool string, force bool, args []string) (CmdOutput, err
 }
 
 // Config ...
-func (c *Handler) Config(url string, token string, offline bool, args []string) (CmdOutput, error) {
+func (c *Handler) Config(url string, token string, offline bool, args []string) (Result, error) {
 	cmdOut := CmdOutput{}
 
 	if len(args) > 0 {
@@ -1244,7 +1280,7 @@ To skip URL validation use --offline option`)
 }
 
 // Version ...
-func (c *Handler) Version(args []string) (CmdOutput, error) {
+func (c *Handler) Version(args []string) (Result, error) {
 	tab := [][]string{}
 
 	tab = append(tab, []string{"Version:", version})
@@ -1253,11 +1289,11 @@ func (c *Handler) Version(args []string) (CmdOutput, error) {
 		tab = append(tab, []string{"Git commit:", gitCommit[:7]})
 	}
 
-	return CmdOutput{Op: []Result{{Tab: tab}}}, nil
+	return CmdOutput{Op: []CmdResult{{Tab: tab}}}, nil
 }
 
 // Info ...
-func (c *Handler) Info(args []string) (CmdOutput, error) {
+func (c *Handler) Info(args []string) (Result, error) {
 	tab := [][]string{}
 
 	tab = append(tab, []string{"Version:", version})
@@ -1294,7 +1330,7 @@ func (c *Handler) Info(args []string) (CmdOutput, error) {
 		}
 	}
 
-	return CmdOutput{Op: []Result{{Tab: tab}}}, nil
+	return CmdOutput{Op: []CmdResult{{Tab: tab}}}, nil
 }
 
 // NewHandler ...

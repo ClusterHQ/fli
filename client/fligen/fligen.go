@@ -97,13 +97,13 @@ const (
 	hTmpl = `
 /*
  * Copyright 2016 ClusterHQ
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -189,13 +189,17 @@ func genTable(tab [][]string) string {
 	return string(buf.Bytes()[:])
 }
 
-func displayOutput(cmd *cobra.Command, out CmdOutput) {
-	for _, o := range out.Op {
-		if o.Str != "" {
-			cmd.Println(o.Str)
-		}
+func displayOutput(cmd *cobra.Command, out Result) {
+	json, err := cmd.Flags().GetBool("json")
+	if err != nil {
+		cmd.Println(err)
+		os.Exit(1)
+	}
 
-		cmd.Print(genTable(o.Tab))
+	if json {
+		cmd.Print(out.JSON())
+	} else {
+		cmd.Print(out.String())
 	}
 }
 
@@ -283,7 +287,7 @@ func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *co
 			strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.{{firstCharToUpper .Name}}({{range .Flags}}
 				{{replaceDash .Name}}Flag,{{end}}
 				args,
@@ -312,6 +316,12 @@ func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *co
 	{{end}}
 
 	{{if .Completion}}
+	cmd.PersistentFlags().BoolP(
+		"json",
+		"",
+		false,
+		"Output using JSON format")
+
 	var outputF = ""
 	var complCmd = &cobra.Command {
 		Use:   getMultiUseLine("completion", []string{"(--output <filepath> | -o <filepath>)"}),
@@ -339,7 +349,7 @@ func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *co
 `
 
 	// ifaceTmpl template that generates interface handler
-	ifaceTmpl = `{{if .Handler}}{{firstCharToUpper .Name}}({{range .Flags}}{{replaceDash .Name}} {{.Type}}, {{end}}args []string) (CmdOutput, error)
+	ifaceTmpl = `{{if .Handler}}{{firstCharToUpper .Name}}({{range .Flags}}{{replaceDash .Name}} {{.Type}}, {{end}}args []string) (Result, error)
 {{end}}`
 )
 
@@ -419,13 +429,13 @@ func (g *Generator) Generate() {
 	var h = tmplHeader{
 		Imports: []string{
 			"strings",
-			"text/tabwriter",
-			"bytes",
-			"fmt",
 			"os",
 			"path/filepath",
 			"io",
 			"sort",
+			"fmt",
+			"bytes",
+			"text/tabwriter",
 		},
 		RelImports: []string{
 			"github.com/spf13/cobra",

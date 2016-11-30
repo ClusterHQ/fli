@@ -100,13 +100,17 @@ func genTable(tab [][]string) string {
 	return string(buf.Bytes()[:])
 }
 
-func displayOutput(cmd *cobra.Command, out CmdOutput) {
-	for _, o := range out.Op {
-		if o.Str != "" {
-			cmd.Println(o.Str)
-		}
+func displayOutput(cmd *cobra.Command, out Result) {
+	json, err := cmd.Flags().GetBool("json")
+	if err != nil {
+		cmd.Println(err)
+		os.Exit(1)
+	}
 
-		cmd.Print(genTable(o.Tab))
+	if json {
+		cmd.Print(out.JSON())
+	} else {
+		cmd.Print(out.String())
 	}
 }
 
@@ -165,6 +169,12 @@ func newFliCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 fli synchronizes metadata with FlockerHub and can push and pull snapshots of volumes from/to FlockerHub.`,
 	}
 
+	cmd.PersistentFlags().BoolP(
+		"json",
+		"",
+		false,
+		"Output using JSON format")
+
 	var outputF = ""
 	var complCmd = &cobra.Command{
 		Use:   getMultiUseLine("completion", []string{"(--output <filepath> | -o <filepath>)"}),
@@ -187,6 +197,7 @@ fli synchronizes metadata with FlockerHub and can push and pull snapshots of vol
 		newSetupCmd(ctx, h),
 		newSnapshotCmd(ctx, h),
 		newSyncCmd(ctx, h),
+		newFetchCmd(ctx, h),
 		newUpdateCmd(ctx, h),
 		newVersionCmd(ctx, h),
 		newInfoCmd(ctx, h),
@@ -245,7 +256,7 @@ If more than one matching result for the snapshot is found then it is treated as
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Clone(
 				attributesFlag,
 				fullFlag,
@@ -322,7 +333,7 @@ func newConfigCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Config(
 				urlFlag,
 				tokenFlag,
@@ -409,7 +420,7 @@ func newCreateCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Create(
 				attributesFlag,
 				fullFlag,
@@ -482,7 +493,7 @@ func newInitCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Init(
 				attributesFlag,
 				descriptionFlag,
@@ -588,7 +599,7 @@ func newListCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.List(
 				allFlag,
 				volumeFlag,
@@ -693,7 +704,7 @@ The following example explains how to pull a single snapshot of a volume
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Pull(
 				urlFlag,
 				tokenFlag,
@@ -794,7 +805,7 @@ The following example explains how to push a single snapshot of a volume
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Push(
 				urlFlag,
 				tokenFlag,
@@ -875,7 +886,7 @@ func newRemoveCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Remove(
 				fullFlag,
 				args,
@@ -934,7 +945,7 @@ func newSetupCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Setup(
 				zpoolFlag,
 				forceFlag,
@@ -1035,7 +1046,7 @@ VOLUMESET and VOLUME could be a name or uuid.
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Snapshot(
 				branchFlag,
 				newbranchFlag,
@@ -1158,7 +1169,7 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Sync(
 				urlFlag,
 				tokenFlag,
@@ -1202,6 +1213,117 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 		"a",
 		false,
 		"Sync all volumesets available locally")
+
+	cmd.Flags().BoolP(
+		"full",
+		"",
+		false,
+		"Report full UUIDs for objects instead of short UUIDs")
+
+	return cmd
+}
+
+func newFetchCmd(ctx context.Context, h CommandHandler) *cobra.Command {
+	var cmd = &cobra.Command{
+		Use: getMultiUseLine("fetch", []string{
+			"[OPTIONS] VOLUMESET",
+		}),
+		Short: "Fetch the metadata of volumeset from the FlockerHub",
+		Long: `Fetches the metadata from FlockerHub. This command needs a FlockerHub URL and an authentication token that can be downloaded from the FlockerHub for a given user.
+The FlockerHub URL and token filepath can be set one time using 'fli config' for all the commands that need this options.
+`,
+		Example: `The following example explains how to fetch a volumeset metadata from the FlockerHub
+
+    $ fli fetch exampleVolSetName --url https://example.flockerhub.com --token /home/demoUser/auth.token
+`,
+		Run: func(cmd *cobra.Command, args []string) {
+			var (
+				err       error
+				urlFlag   string
+				tokenFlag string
+				allFlag   bool
+				fullFlag  bool
+			)
+
+			urlFlag, err = cmd.Flags().GetString("url")
+			if err != nil {
+				cmd.Println(err)
+				os.Exit(1)
+			}
+
+			tokenFlag, err = cmd.Flags().GetString("token")
+			if err != nil {
+				cmd.Println(err)
+				os.Exit(1)
+			}
+
+			allFlag, err = cmd.Flags().GetBool("all")
+			if err != nil {
+				cmd.Println(err)
+				os.Exit(1)
+			}
+
+			fullFlag, err = cmd.Flags().GetBool("full")
+			if err != nil {
+				cmd.Println(err)
+				os.Exit(1)
+			}
+
+			logger, err := newLogger()
+			handleError(cmd, err)
+
+			logger.Printf("fli fetch --url '%v' --token '%v' --all '%v' --full '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				allFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
+
+			var res Result
+			res, err = h.Fetch(
+				urlFlag,
+				tokenFlag,
+				allFlag,
+				fullFlag,
+				args,
+			)
+			if err != nil {
+				logger.Printf("ERROR: %v", err.Error())
+			}
+
+			handleError(cmd, err)
+			displayOutput(cmd, res)
+		},
+	}
+
+	urlDefVal := ""
+	if v := ctx.Value(urlKey); v != nil {
+		urlDefVal = ctx.Value(urlKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"url",
+		"u",
+		urlDefVal,
+		"FlockerHub URL (Example: https://flockerhub.com or http://flockerhub.com)")
+
+	tokenDefVal := ""
+	if v := ctx.Value(tokenKey); v != nil {
+		tokenDefVal = ctx.Value(tokenKey).(string)
+	}
+
+	cmd.Flags().StringP(
+		"token",
+		"t",
+		tokenDefVal,
+		"Absolute path of the authentication token file")
+
+	cmd.Flags().BoolP(
+		"all",
+		"a",
+		false,
+		"Fetch metadata of all volumesets that are available locally")
 
 	cmd.Flags().BoolP(
 		"full",
@@ -1276,7 +1398,7 @@ The VOLUMESET, SNAPSHOT and VOLUME can be name or uuid. The BRANCH is always a n
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Update(
 				nameFlag,
 				attributesFlag,
@@ -1350,7 +1472,7 @@ func newVersionCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Version(
 				args,
 			)
@@ -1381,7 +1503,7 @@ func newInfoCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				strings.Join(args, " "),
 			)
 
-			var res CmdOutput
+			var res Result
 			res, err = h.Info(
 				args,
 			)
@@ -1399,18 +1521,19 @@ func newInfoCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 
 // CommandHandler inteface that implements handlers for cli commands
 type CommandHandler interface {
-	Clone(attributes string, full bool, args []string) (CmdOutput, error)
-	Config(url string, token string, offline bool, args []string) (CmdOutput, error)
-	Create(attributes string, full bool, args []string) (CmdOutput, error)
-	Init(attributes string, description string, args []string) (CmdOutput, error)
-	List(all bool, volume bool, snapshot bool, branch bool, full bool, args []string) (CmdOutput, error)
-	Pull(url string, token string, full bool, args []string) (CmdOutput, error)
-	Push(url string, token string, full bool, args []string) (CmdOutput, error)
-	Remove(full bool, args []string) (CmdOutput, error)
-	Setup(zpool string, force bool, args []string) (CmdOutput, error)
-	Snapshot(branch string, newbranch bool, attributes string, description string, full bool, args []string) (CmdOutput, error)
-	Sync(url string, token string, all bool, full bool, args []string) (CmdOutput, error)
-	Update(name string, attributes string, description string, full bool, args []string) (CmdOutput, error)
-	Version(args []string) (CmdOutput, error)
-	Info(args []string) (CmdOutput, error)
+	Clone(attributes string, full bool, args []string) (Result, error)
+	Config(url string, token string, offline bool, args []string) (Result, error)
+	Create(attributes string, full bool, args []string) (Result, error)
+	Init(attributes string, description string, args []string) (Result, error)
+	List(all bool, volume bool, snapshot bool, branch bool, full bool, args []string) (Result, error)
+	Pull(url string, token string, full bool, args []string) (Result, error)
+	Push(url string, token string, full bool, args []string) (Result, error)
+	Remove(full bool, args []string) (Result, error)
+	Setup(zpool string, force bool, args []string) (Result, error)
+	Snapshot(branch string, newbranch bool, attributes string, description string, full bool, args []string) (Result, error)
+	Sync(url string, token string, all bool, full bool, args []string) (Result, error)
+	Fetch(url string, token string, all bool, full bool, args []string) (Result, error)
+	Update(name string, attributes string, description string, full bool, args []string) (Result, error)
+	Version(args []string) (Result, error)
+	Info(args []string) (Result, error)
 }

@@ -258,7 +258,7 @@ func pushVolumeSet(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid
 	return nil
 }
 
-// PushMetadata is a function that ensures that the target storage contains a volumeset with the same ID as
+// NewObjects is a function that ensures that the target storage contains a volumeset with the same ID as
 // sourceVolumeSet and that all metadata in sourceVolumeSet is also present in the target volumeset.
 // In other words, after PushMetadata() completes without an error the target metadata should be a subset of the
 // source metadata (or possibly exactly the same).
@@ -278,7 +278,7 @@ func pushVolumeSet(mdsSrc metastore.Syncable, mdsTarget metastore.Syncable, vsid
 // branch.  So, after the push there will two branches on the target side, one with the old name and the other with the
 // new one.  Should we be smarter about that?  Should there be a method to remove a branch?
 // TODO: This is exported for test only, not export may be?
-func PushMetadata(source metastore.Syncable, target metastore.Syncable, vsid volumeset.ID) error {
+func NewObjects(source metastore.Syncable, target metastore.Syncable, vsid volumeset.ID) error {
 	_, err := metastore.GetVolumeSet(target, vsid)
 	if err != nil {
 		if _, ok := err.(*metastore.ErrVolumeSetNotFound); !ok {
@@ -302,7 +302,7 @@ func PushMetadata(source metastore.Syncable, target metastore.Syncable, vsid vol
 	return pushVolumeSet(source, target, vsid)
 }
 
-// MetadataSync syncs the volumeset between the metadata stores.
+// Do syncs the volumeset between the metadata stores.
 // In a two way sync mode:
 // 1. Push new snapshots from current to target
 // 2. Pull new snapshots from target to current
@@ -315,10 +315,10 @@ func PushMetadata(source metastore.Syncable, target metastore.Syncable, vsid vol
 // 2. Pull new snapshots from current to initial(including locally newly created and pulled from target)
 // 3. Sync meta data (new and old) from target to current and initial. Local changes will be overwritten
 //    with data from target when there are conflicts.
-func MetadataSync(
+func Do(
 	storeTgt, storeCur, storeInit metastore.Syncable,
 	vsid volumeset.ID,
-	oneWay bool,
+	pullOnly bool,
 ) (MetaConflicts, error) {
 	log.Println("Syncing meta data of new objects ...")
 	var (
@@ -346,9 +346,9 @@ func MetadataSync(
 		return MetaConflicts{}, errors.Errorf("VolumeSet (%s) not found anywhere.", vsid.String())
 	}
 
-	if errCur == nil && !oneWay {
+	if errCur == nil && !pullOnly {
 		log.Println("Pushing meta data to remote ...")
-		err := PushMetadata(storeCur, storeTgt, vsid)
+		err := NewObjects(storeCur, storeTgt, vsid)
 		if err != nil {
 			return MetaConflicts{}, err
 		}
@@ -356,7 +356,7 @@ func MetadataSync(
 
 	if errTgt == nil {
 		log.Println("Pulling meta data from remote ...")
-		err := PushMetadata(storeTgt, storeCur, vsid)
+		err := NewObjects(storeTgt, storeCur, vsid)
 		if err != nil {
 			return MetaConflicts{}, err
 		}
@@ -364,7 +364,7 @@ func MetadataSync(
 
 	// Bring all the new objects within vs from cur to init
 	log.Println("Syncing meta data locally ...")
-	err := PushMetadata(storeCur, storeInit, vsid)
+	err := NewObjects(storeCur, storeInit, vsid)
 	if err != nil {
 		return MetaConflicts{}, err
 	}
@@ -376,17 +376,17 @@ func MetadataSync(
 		Init: storeInit,
 	}
 
-	vsMetaConflicts, err := UpdateTgtVSMeta(s, vsid)
+	vsMetaConflicts, err := volSetMeta(s, vsid, pullOnly)
 	if err != nil {
 		return MetaConflicts{}, err
 	}
 
-	snapMetaConflicts, err := UpdateTgtSnapMeta(s, vsid)
+	snapMetaConflicts, err := snapshotMeta(s, vsid, pullOnly)
 	if err != nil {
 		return MetaConflicts{}, err
 	}
 
-	branchMetaConflicts, err := UpdateTgtBranchMeta(s, vsid)
+	branchMetaConflicts, err := branchMeta(s, vsid)
 	if err != nil {
 		return MetaConflicts{}, err
 	}

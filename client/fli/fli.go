@@ -23,7 +23,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/ClusterHQ/fli/dl/blobdiffer"
 	"github.com/ClusterHQ/fli/dl/datalayer"
@@ -71,17 +70,6 @@ const (
 )
 
 type (
-	// Result ...
-	Result struct {
-		Str string
-		Tab [][]string
-	}
-
-	// CmdOutput ...
-	CmdOutput struct {
-		Op []Result
-	}
-
 	volumesetObjects struct {
 		volset *volumeset.VolumeSet
 		brs    []*branch.Branch
@@ -330,227 +318,6 @@ func splitVolumeSetName(vsName string) (string, string) {
 	return prefix, vsName
 }
 
-func snapshotTable(tabCount int, full bool, snaps []*snapshot.Snapshot) [][]string {
-	if len(snaps) == 0 {
-		return [][]string{}
-	}
-
-	header := []string{
-		"SNAPSHOT ID",
-		"OWNER",
-		"CREATOR",
-		"CREATED",
-		"SIZE",
-		"DESCRIPTION",
-		"ATTRIBUTES",
-		"NAME",
-	}
-
-	leadingTabs := ""
-	if tabCount > 0 {
-		for i := 0; i < tabCount; i++ {
-			leadingTabs += "    "
-		}
-
-		header = append([]string{leadingTabs}, header...)
-	}
-
-	tab := append([][]string{}, header)
-
-	for _, snap := range snaps {
-		id := snap.ID.String()
-		owner := snap.Owner
-		creator := snap.Creator
-
-		if !full {
-			id = ShrinkUUIDs(id)
-			owner = ShrinkUUIDs(snap.Owner)
-			creator = ShrinkUUIDs(snap.Creator)
-		}
-
-		row := []string{
-			id,
-			owner,
-			creator,
-			snap.CreationTime.Format(time.Stamp),
-			readableSize(snap.Size),
-			snap.Description,
-			convAttrToStr(snap.Attrs),
-			snap.Name,
-		}
-
-		if tabCount > 0 {
-			row = append([]string{leadingTabs}, row...)
-		}
-
-		tab = append(tab, row)
-	}
-
-	return tab
-}
-
-func volumesetTable(tabCount int, full bool, volsets []*volumeset.VolumeSet) [][]string {
-	if len(volsets) == 0 {
-		return [][]string{}
-	}
-
-	header := []string{
-		"VOLUMESET ID",
-		"CREATOR",
-		"CREATED",
-		"SIZE",
-		"DESCRIPTION",
-		"ATTRIBUTES",
-		"NAME",
-	}
-
-	leadingTabs := ""
-	if tabCount > 0 {
-		for i := 0; i < tabCount; i++ {
-			leadingTabs += "    "
-		}
-
-		header = append([]string{leadingTabs}, header...)
-	}
-
-	tab := append([][]string{}, header)
-
-	for _, volset := range volsets {
-		name := volset.Name
-		id := volset.ID.String()
-		creator := volset.Creator
-
-		if !full {
-			id = ShrinkUUIDs(id)
-			creator = ShrinkUUIDs(volset.Creator)
-		}
-
-		if volset.Prefix != "" {
-			name = volset.Prefix + "/" + name
-		}
-
-		row := []string{
-			id,
-			creator,
-			volset.CreationTime.Format(time.Stamp),
-			readableSize(volset.Size),
-			volset.Description,
-			convAttrToStr(volset.Attrs),
-			name,
-		}
-
-		if tabCount > 0 {
-			row = append([]string{leadingTabs}, row...)
-		}
-
-		tab = append(tab, row)
-	}
-
-	return tab
-}
-
-func branchTable(tabCount int, full bool, branches []*branch.Branch) [][]string {
-	if len(branches) == 0 {
-		return [][]string{}
-	}
-
-	header := []string{
-		"BRANCH",
-		"SNAPSHOT TIP"}
-
-	leadingTabs := ""
-	if tabCount > 0 {
-		for i := 0; i < tabCount; i++ {
-			leadingTabs += "    "
-		}
-
-		header = append([]string{leadingTabs}, header...)
-	}
-
-	tab := append([][]string{}, header)
-	for _, br := range branches {
-		row := []string{br.Name, br.Tip.Name}
-		if tabCount > 0 {
-			row = append([]string{leadingTabs}, row...)
-		}
-		tab = append(tab, row)
-	}
-
-	return tab
-}
-
-func volumeTables(tabCount int, full bool, vols []*volume.Volume) [][]string {
-	if len(vols) == 0 {
-		return [][]string{}
-	}
-
-	header := []string{
-		"VOLUME ID",
-		"CREATED",
-		"SIZE",
-		"MOUNT POINT",
-		"NAME",
-	}
-
-	leadingTabs := ""
-	if tabCount > 0 {
-		for i := 0; i < tabCount; i++ {
-			leadingTabs += "    "
-		}
-
-		header = append([]string{leadingTabs}, header...)
-	}
-	tab := append([][]string{}, header)
-
-	for _, vol := range vols {
-		id := vol.ID.String()
-
-		if !full {
-			id = ShrinkUUIDs(id)
-		}
-
-		row := []string{
-			id,
-			vol.CreationTime.Format(time.Stamp),
-			readableSize(vol.Size),
-			vol.MntPath.Path(),
-			vol.Name,
-		}
-		if tabCount > 0 {
-			row = append([]string{leadingTabs}, row...)
-		}
-		tab = append(tab, row)
-	}
-
-	return tab
-}
-
-func displayObjects(vsObj volumesetObjects, full bool) []Result {
-
-	result := []Result{
-		{
-			Tab: volumesetTable(0, full, []*volumeset.VolumeSet{vsObj.volset}),
-		},
-	}
-
-	if len(vsObj.brs) > 0 {
-		res := Result{Tab: branchTable(1, full, vsObj.brs)}
-		result = append(result, res)
-	}
-
-	if len(vsObj.snaps) > 0 {
-		res := Result{Tab: snapshotTable(1, full, vsObj.snaps)}
-		result = append(result, res)
-	}
-
-	if len(vsObj.vols) > 0 {
-		res := Result{Tab: volumeTables(1, full, vsObj.vols)}
-		result = append(result, res)
-	}
-
-	return result
-}
-
 func handleZFSErr(err error) error {
 	switch err.(type) {
 	case *zfs.ErrZfsNotFound:
@@ -643,3 +410,5 @@ func Execute() {
 	// parse and execute fli
 	cmd.Execute()
 }
+
+var _ Result = &CmdOutput{}

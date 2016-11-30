@@ -1170,7 +1170,47 @@ func (store *Sqlite3Storage) UpdateSnapshots(snaps []*metastore.SnapshotPair) ([
 	}
 
 	for idx, snap := range snaps {
-		c, err := store.snapshotResolveConflict(tx, snapsTgt[idx], snap.Cur, snap.Init)
+		c, err := store.snapshotResolveConflict(tx, snapsTgt[idx], snap.Cur, snap.Init, false)
+		if err != nil {
+			return nil, err
+		}
+		if !c.IsEmpty() {
+			conflicts = append(conflicts, c)
+		}
+	}
+
+	return conflicts, nil
+}
+
+// PullSnapshots implements metastore interface
+// Assumption: Snapshots pair are sorted by snapshot ID in snapshot.AEC order.
+func (store *Sqlite3Storage) PullSnapshots(snaps []*metastore.SnapshotPair) ([]metastore.SnapMetaConflict, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
+
+	var (
+		ids       []snapshot.ID
+		conflicts []metastore.SnapMetaConflict
+	)
+	for _, snap := range snaps {
+		ids = append(ids, snap.Cur.ID)
+	}
+
+	snapsTgt, err := getSnapshotForWrite(tx, ids)
+	if err != nil {
+		return conflicts, nil
+	}
+
+	if len(snapsTgt) != len(snaps) {
+		return conflicts, errors.Errorf("Expecting %d snapshots on target, but read %d.",
+			len(snaps), len(snapsTgt))
+	}
+
+	for idx, snap := range snaps {
+		c, err := store.snapshotResolveConflict(tx, snapsTgt[idx], snap.Cur, snap.Init, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1205,21 +1245,30 @@ func (store *Sqlite3Storage) UpdateSnapshot(snapCur, snapInit *snapshot.Snapshot
 		return metastore.SnapMetaConflict{}, errors.Errorf("Expecting exactly one record, got %d", len(snapTgt))
 	}
 
-	return store.snapshotResolveConflict(tx, snapTgt[0], snapCur, snapInit)
+	return store.snapshotResolveConflict(tx, snapTgt[0], snapCur, snapInit, false)
 }
 
 // snapshotResolveConflict compares the three versions of a snapshot and decides what action to take(update,
 // do nothing, or return conflict)
-func (store *Sqlite3Storage) snapshotResolveConflict(tx *sql.Tx,
-	snapTgt, snapCur, snapInit *snapshot.Snapshot) (metastore.SnapMetaConflict, error) {
+func (store *Sqlite3Storage) snapshotResolveConflict(
+	tx *sql.Tx,
+	snapTgt, snapCur, snapInit *snapshot.Snapshot,
+	pullOnly bool,
+) (metastore.SnapMetaConflict, error) {
 
 	if snapInit == nil {
+		if pullOnly {
+			return metastore.SnapMetaConflict{}, nil
+		}
 		return metastore.SnapMetaConflict{}, updateSnapshot(tx, snapCur)
 	}
 
 	status := sync.CheckSnapConflict(snapTgt, snapCur, snapInit)
 	switch status {
 	case metastore.UseCurrent:
+		if pullOnly {
+			return metastore.SnapMetaConflict{}, nil
+		}
 		return metastore.SnapMetaConflict{}, updateSnapshot(tx, snapCur)
 	case metastore.UseTgtNoConflict, metastore.UseTgtConflict:
 		return metastore.SnapMetaConflict{Tgt: snapTgt, Cur: snapCur, Init: snapInit}, nil
@@ -1402,6 +1451,41 @@ func (store *Sqlite3Storage) UpdateVolumeSet(
 	switch status {
 	case metastore.UseCurrent:
 		return metastore.VSMetaConflict{}, updateVolumeSet(tx, vsCur)
+	case metastore.UseTgtNoConflict, metastore.UseTgtConflict:
+		return metastore.VSMetaConflict{Tgt: vsTgt, Cur: vsCur, Init: vsInit}, nil
+	}
+
+	return metastore.VSMetaConflict{}, nil
+}
+
+// PullVolumeSet implements the metastore interface
+func (store *Sqlite3Storage) PullVolumeSet(
+	vsCur, vsInit *volumeset.VolumeSet,
+) (metastore.VSMetaConflict, error) {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return metastore.VSMetaConflict{}, errors.New(err)
+	}
+	defer tx.Rollback()
+
+	volsets, err := getVolumeSets(tx, volumeset.Query{ID: vsCur.ID})
+	if err != nil {
+		return metastore.VSMetaConflict{}, err
+	}
+
+	if len(volsets) == 0 {
+		return metastore.VSMetaConflict{}, &metastore.ErrVolumeSetNotFound{}
+	}
+
+	if vsInit == nil {
+		return metastore.VSMetaConflict{}, nil
+	}
+
+	vsTgt := volsets[0]
+	status := sync.CheckVSConflict(vsTgt, vsCur, vsInit)
+	switch status {
+	case metastore.UseCurrent:
+		return metastore.VSMetaConflict{}, nil
 	case metastore.UseTgtNoConflict, metastore.UseTgtConflict:
 		return metastore.VSMetaConflict{Tgt: vsTgt, Cur: vsCur, Init: vsInit}, nil
 	}

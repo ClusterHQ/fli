@@ -79,14 +79,21 @@ type (
 		// ImportBranch is similar to ForkBranch() but with a given branch id.
 		ImportBranch(branchID branch.ID, branchName string, snapshots ...*snapshot.Snapshot) error
 
-		// UpdateVolumeSet ...
+		// UpdateVolumeSet updates a volume set's meta data based on the given set of
+		// volume sets. Current is what the caller's current desired value, initial is the caller's
+		// had before the change to current.
+		// Based on the two volume set(or one, initial can be empty), target decides what to do
+		// based on the three way sync protocol, details in postgres or sqlite3 implementation.
 		UpdateVolumeSet(vsCur, vsInit *volumeset.VolumeSet) (VSMetaConflict, error)
 
-		// UpdateSnapshot updates one snapshot
-		UpdateSnapshot(snapCur, snapInit *snapshot.Snapshot) (SnapMetaConflict, error)
+		// PullVolumeSet is almost identical to UpdateVolumeSet except it doesn't actully update target.
+		PullVolumeSet(vsCur, vsInit *volumeset.VolumeSet) (VSMetaConflict, error)
 
-		// UpdateSnapshots updates an array of snapshots
+		// UpdateSnapshots updates an array of snapshots similar to UpdateVolumeSets
 		UpdateSnapshots([]*SnapshotPair) ([]SnapMetaConflict, error)
+
+		// PullSnapshots is almost identical to UpdateSnapshots except it doesn't actully update target.
+		PullSnapshots([]*SnapshotPair) ([]SnapMetaConflict, error)
 
 		// GetSnapshots ...
 		GetSnapshots(q snapshot.Query) ([]*snapshot.Snapshot, error)
@@ -105,6 +112,9 @@ type (
 		// Note: Didn't want to overload UpdateVolumeSet() because want this be explicitly called. In memory
 		//       version of volume set may not have the latest size.
 		SetVolumeSetSize(vsid volumeset.ID, size uint64) error
+
+		// UpdateSnapshot updates one snapshot
+		UpdateSnapshot(snapCur, snapInit *snapshot.Snapshot) (SnapMetaConflict, error)
 
 		// DeleteVolumeSet irrevocably discards the data associated with the
 		// given unique identifier
@@ -151,6 +161,14 @@ type (
 
 		// DeleteSnapshots deletes a series of snapshots
 		DeleteSnapshots(snaps []*snapshot.Snapshot, tip *snapshot.Snapshot) error
+	}
+
+	// Server supports disk space usage, likely used by a volume hub server.
+	Server interface {
+		Store
+
+		// DiskSpaceUsage returns disk space used by all given volume sets
+		DiskSpaceUsage(vsids []volumeset.ID) (uint64, error)
 	}
 )
 
@@ -590,7 +608,7 @@ func UpdateVolumeSet(mds Syncable, vs *volumeset.VolumeSet) error {
 
 // UpdateSnapshot calls MDS's update snapshot, it might update some of the snapshott's field before
 // calling, for example, set last motified time to current time.
-func UpdateSnapshot(mds Syncable, snap *snapshot.Snapshot) error {
+func UpdateSnapshot(mds Store, snap *snapshot.Snapshot) error {
 	snap.LastModifiedTime = time.Now()
 	_, err := mds.UpdateSnapshot(snap, nil)
 	return err
