@@ -54,6 +54,7 @@ At the present, Fli works best for testing, but these generic capabilities to sn
 # Get involved
 
 * Submit a issue or PR on GitHub.  We'd love your help.
+* Join our Slack community at http://slack.clusterhq.com/
 * You can also join us on the ``#clusterhq`` channel on the ``irc.freenode.net``
 * Ask a question on the ``flockerhub-fli-users`` [Google group](https://groups.google.com/forum/#!forum/flockerhub-fli-users)
 * Send us an email at support@clusterhq.com
