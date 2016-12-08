@@ -53,6 +53,9 @@ type (
 			cancel <-chan bool, wg *sync.WaitGroup) <-chan record.Record
 	}
 
+	// MountType defines mount mode when a new volume is created
+	MountType bool
+
 	// Storage defines common interface for all data storage back ends
 	Storage interface {
 		// Returns the storage version
@@ -61,14 +64,14 @@ type (
 		// BlobDiffer returns the associated blob differ of the storage
 		BlobDiffer() BlobDifferFactory
 
-		// MountPoint converts a blob ID to a file system mount point
-		BlobMountPointPath(blob.ID) (securefilepath.SecureFilePath, error)
+		// MountBlob mounts a blob.
+		MountBlob(blob.ID) (string, error)
 
 		// EmptyBlobID returns a blob id where a new volume can be created from
 		EmptyBlobID(volumeset.ID) (blob.ID, error)
 
 		// CreateVolume creates a volume.
-		CreateVolume(volumeset.ID, blob.ID) (volume.ID, securefilepath.SecureFilePath, error)
+		CreateVolume(volumeset.ID, blob.ID, MountType) (volume.ID, securefilepath.SecureFilePath, error)
 
 		// DestroyVolume destroys the volume
 		DestroyVolume(volumeset.ID, volume.ID) error
@@ -86,10 +89,6 @@ type (
 		// SnapshotExists checks if the blob
 		SnapshotExists(blob.ID) (bool, error)
 
-		// GetVolumeForSnapshot returns a volume to which the snapshot belongs if the
-		// snapshot is the latest snapshot of the volume or creates and returns a new volume.
-		GetVolumeForSnapshot(volumeset.ID, blob.ID) (volume.ID, securefilepath.SecureFilePath, error)
-
 		// GetSnapshotSpace returns space usage statistics for a snapshot.
 		GetSnapshotSpace(blob.ID) (SnapshotSpace, error)
 
@@ -98,6 +97,9 @@ type (
 
 		// GetVolumesetSpace returns space usage statistics for a volume set.
 		GetVolumesetSpace(vsid volumeset.ID) (DiskSpace, error)
+
+		// Unmount unmount a previously mounted path.
+		Unmount(path string) error
 	}
 
 	// SnapshotSpace is a structure that describes various aspects
@@ -126,8 +128,22 @@ type (
 	}
 )
 
-// DifferChannelSize ...
-const DifferChannelSize = 20
+const (
+	// NoAutoMount is the false value for MountType.
+	// This flag is used to tell storage layer when creating a volume, set it to no automatic
+	// mount mode, which means after use the volume is unmounted, and will not be mounted
+	// after a reboot.
+	NoAutoMount MountType = false
+
+	// AutoMount is the true value for MountType
+	// This flag is used to tell storage layer when creating a volume, set it to automatic
+	// mount mode, which means after use the volume remains mounted, and will be mounted
+	// after a reboot.
+	AutoMount MountType = true
+
+	// DifferChannelSize ...
+	DifferChannelSize = 20
+)
 
 // UploadBlobDiff ...
 func UploadBlobDiff(
@@ -217,7 +233,6 @@ func DownloadBlobDiff(
 	vsid volumeset.ID,
 	ssid snapshot.ID,
 	base blob.ID,
-	reuseVolume bool,
 	token string,
 	e executor.Executor,
 	hf dlhash.Factory,
@@ -245,12 +260,7 @@ func DownloadBlobDiff(
 		vid     volume.ID
 		mntPath securefilepath.SecureFilePath
 	)
-	// Create a new volume or reuse an existing volume
-	if reuseVolume {
-		vid, mntPath, err = s.GetVolumeForSnapshot(vsid, baseBlobID)
-	} else {
-		vid, mntPath, err = s.CreateVolume(vsid, baseBlobID)
-	}
+	vid, mntPath, err = s.CreateVolume(vsid, baseBlobID, NoAutoMount)
 	if err != nil {
 		return blob.NilID(), 0, errors.New(err)
 	}
@@ -693,15 +703,17 @@ func SendDiff(s Storage, baseBlobID blob.ID, targetBlobID blob.ID, encdec encdec
 		return err
 	}
 
-	baseID, err := s.BlobMountPointPath(baseBlobID)
+	basePath, err := s.MountBlob(baseBlobID)
 	if err != nil {
 		return err
 	}
+	defer s.Unmount(baseBlobID.String())
 
-	targetID, err := s.BlobMountPointPath(targetBlobID)
+	targetPath, err := s.MountBlob(targetBlobID)
 	if err != nil {
 		return err
 	}
+	defer s.Unmount(targetBlobID.String())
 
 	err = writeTransferHdr(
 		target,
@@ -719,7 +731,7 @@ func SendDiff(s Storage, baseBlobID blob.ID, targetBlobID blob.ID, encdec encdec
 	cancelCh := make(chan bool, 1)
 
 	wg.Add(1)
-	records := s.BlobDiffer().New(baseID.Path(), targetID.Path(), hf, errc, cancelCh, wg)
+	records := s.BlobDiffer().New(basePath, targetPath, hf, errc, cancelCh, wg)
 	err = SendRecords(encdec, records, target, cancelCh)
 	wg.Wait()
 

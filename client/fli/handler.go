@@ -17,12 +17,19 @@
 package fli
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	dlbin "github.com/ClusterHQ/fli/dl/encdec/binary"
 	dladler32 "github.com/ClusterHQ/fli/dl/hash/adler32"
@@ -38,6 +45,7 @@ import (
 	"github.com/ClusterHQ/fli/meta/volumeset"
 	"github.com/ClusterHQ/fli/protocols"
 	"github.com/ClusterHQ/fli/securefilepath"
+	"github.com/ClusterHQ/fli/version"
 	"github.com/ClusterHQ/fli/vh/cauthn"
 )
 
@@ -54,6 +62,92 @@ type Handler struct {
 	MdsPathInitial string
 	mdsCurrent     metastore.Client
 	mdsInitial     metastore.Client
+	FliLogFile     string
+}
+
+func (c *Handler) upgradeVersion(ver string) error {
+	switch ver {
+	case "": // Upgrade from older version to 0.7.0
+		// TODO It might be a good idea to move upgrade to a different struct?
+		// Check if ZPOOL exists
+		_, err := exec.Command("zfs", "list", c.CfgParams.Zpool).Output()
+		if err != nil {
+			log.Printf("ZPOOL %s doesn't exist. Skipping upgrade", c.CfgParams.Zpool)
+			return nil
+		}
+
+		op, err := exec.Command("zfs", "get", "-H", "-d", "1", "-o", "name", "-t", "filesystem", "name", c.CfgParams.Zpool).Output()
+		if err != nil {
+			log.Printf("%#v", op)
+			return err
+		}
+		opStr := string(op[:])
+		lnResult := strings.Split(opStr, "\n")
+
+		for _, res := range lnResult[1 : len(lnResult)-1] {
+			op, err := exec.Command("zfs", "set", "mountpoint=none", res).Output()
+			if err != nil {
+				log.Printf("%#v", op)
+				return err
+			}
+		}
+
+		// There is no database file available.
+		if c.CfgParams.SQLMdsCurrent == "" {
+			return nil
+		}
+
+		mds, err := c.getMdsCurrent()
+		if err != nil {
+			return err
+		}
+
+		vols, err := metastore.GetAllVolumes(mds)
+		if err != nil {
+			return err
+		}
+
+		for _, vol := range vols {
+			path := vol.MntPath.Path()
+
+			// Check if zfs filesystem exists
+			_, err := exec.Command("zfs", "list", path[1:]).Output()
+			if err != nil {
+				log.Printf("ZFS Volume %s doesn't exist. Skipping upgrade", path[1:])
+				continue
+			}
+
+			// Upgrade the clones mount paths
+			op, err := exec.Command("zfs", "set", "mountpoint="+path, path[1:]).Output()
+			if err != nil {
+				log.Printf("%#v", op)
+				return err
+			}
+		}
+
+		// fallthrough to all future upgrades after this point
+	}
+
+	return nil
+}
+
+func (c *Handler) upgrade() error {
+	if c.CfgParams.Zpool == "" || c.CfgParams.Version == version.Version() {
+		return nil
+	}
+
+	if err := c.upgradeVersion(c.CfgParams.Version); err != nil {
+		return err
+	}
+
+	// Update the version in configuration
+	c.CfgParams.Version = version.Version()
+	cfg := NewConfig(c.ConfigFile)
+	if err := cfg.UpdateConfig(c.CfgParams); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // getMdsCurrent opens the DB connection if it has not been opened before; otherwise returns the existing
@@ -1201,6 +1295,7 @@ func (c *Handler) Setup(zpool string, force bool, args []string) (Result, error)
 		return CmdOutput{}, errors.Errorf("zpool not set for the fli client. Use --zpool to set the zpool")
 	}
 
+	c.CfgParams.Version = version.Version()
 	c.CfgParams.SQLMdsInitial = mdsInitialFPath.Path()
 	c.CfgParams.SQLMdsCurrent = mdsCurrentFPath.Path()
 	c.CfgParams.Zpool = zpool
@@ -1247,7 +1342,7 @@ func (c *Handler) Config(url string, token string, offline bool, args []string) 
 		}
 
 		if _, err := os.Stat(token); os.IsNotExist(err) {
-			return cmdOut, errors.Errorf("Token file (%s) does not exists", token)
+			return cmdOut, errors.Errorf("Token file (%s) does not exist", token)
 		}
 
 		c.CfgParams.AuthTokenFile = token
@@ -1283,11 +1378,163 @@ To skip URL validation use --offline option`)
 func (c *Handler) Version(args []string) (Result, error) {
 	tab := [][]string{}
 
-	tab = append(tab, []string{"Version:", version})
-	if gitCommit != "" && len(gitCommit) == 40 {
+	tab = append(tab, []string{"Version:", version.Version()})
+	commitID := version.CommitID()
+	if commitID != "" && len(commitID) == 40 {
 		// git hash should be 40 char long
-		tab = append(tab, []string{"Git commit:", gitCommit[:7]})
+		tab = append(tab, []string{"Git commit:", commitID[:7]})
 	}
+
+	return CmdOutput{Op: []CmdResult{{Tab: tab}}}, nil
+}
+
+func addFileToTarball(tw *tar.Writer, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	// now lets create the header as needed for this file within the tarball
+	header, err := tar.FileInfoHeader(stat, "") //no links
+	if err != nil {
+		return err
+	}
+
+	// write the header to the tarball archive
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+	// copy the file data to the tarball
+	if _, err := io.Copy(tw, file); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func dumpZfsStats(pool, filepath string) error {
+	output, err := exec.Command("zfs", "list", "-rt", "all", pool).Output()
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(filepath, output, 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func dumpZpoolHistory(pool, filepath string) error {
+	output, err := exec.Command("zpool", "history", "-li", pool).Output()
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(filepath, output, 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Diagnostics ...
+func (c *Handler) Diagnostics(args []string) (Result, error) {
+	tab := [][]string{}
+
+	if len(args) != 1 {
+		return CmdOutput{}, ErrInvalidArgs{}
+	}
+	dir := args[0]
+
+	strTime := time.Now().String()
+	// spaces and colons are bad (special chars wrt gzip).
+	// replace them with underscores and dashes respectively.
+	strTime = strings.Replace(strTime, " ", "_", -1)
+	strTime = strings.Replace(strTime, ":", "-", -1)
+
+	archiveName := "chq_diag" + "_" + strTime + ".tar" + ".gz"
+	zfsDumpName := "chq_zfs_stats" + "_" + strTime
+	zpoolHistName := "chq_zpool_history" + "_" + strTime
+	fliInfoName := "chq_fli_info" + "_" + strTime
+
+	archivePath := filepath.Join(dir, archiveName)
+	zfsDumpPath := filepath.Join(dir, zfsDumpName)
+	zpoolDumpPath := filepath.Join(dir, zpoolHistName)
+	fliInfoPath := filepath.Join(dir, fliInfoName)
+
+	// create archive
+	archive, err := os.Create(archivePath)
+	if err != nil {
+		return CmdOutput{}, err
+	}
+	defer func() {
+		if err != nil {
+			os.Remove(archivePath)
+		} else {
+			archive.Close()
+		}
+	}()
+
+	// dump zfs stats to a temp file
+	if err := dumpZfsStats(c.CfgParams.Zpool, zfsDumpPath); err != nil {
+		os.Remove(zfsDumpPath) //paranoid
+		return CmdOutput{}, err
+	}
+	defer os.Remove(zfsDumpPath)
+
+	// dump zpool history to a temp file
+	if err := dumpZpoolHistory(c.CfgParams.Zpool, zpoolDumpPath); err != nil {
+		os.Remove(zpoolDumpPath) //paranoid
+		return CmdOutput{}, err
+	}
+	defer os.Remove(zpoolDumpPath)
+
+	// dump version info to a temp file
+	info, err := c.Info([]string{})
+	if err != nil {
+		return CmdOutput{}, err
+	}
+	if err = ioutil.WriteFile(fliInfoPath, []byte(info.String()), 0644); err != nil {
+		os.Remove(fliInfoPath) //paranoid
+		return CmdOutput{}, err
+	}
+	defer os.Remove(fliInfoPath)
+
+	// list of files that we will add to archive
+	files := []string{
+		c.CfgParams.SQLMdsInitial,
+		c.CfgParams.SQLMdsCurrent,
+		filepath.Join(LogDir, CmdLogFilename),
+		filepath.Join(LogDir, FliLogFilename),
+		zfsDumpPath,
+		zpoolDumpPath,
+		fliInfoPath,
+	}
+
+	// setup gzip writer
+	gzipWriter := gzip.NewWriter(archive)
+	defer gzipWriter.Close()
+
+	// setup tar writer
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	// add files to tar archive
+	for _, file := range files {
+		if err := addFileToTarball(tarWriter, file); err != nil {
+			return CmdOutput{}, err
+		}
+	}
+
+	tab = append(tab, []string{"Success. Generated archive: ", archivePath})
+	tab = append(tab, []string{"Please email it to support@clusterhq.com"})
 
 	return CmdOutput{Op: []CmdResult{{Tab: tab}}}, nil
 }
@@ -1296,13 +1543,15 @@ func (c *Handler) Version(args []string) (Result, error) {
 func (c *Handler) Info(args []string) (Result, error) {
 	tab := [][]string{}
 
-	tab = append(tab, []string{"Version:", version})
+	tab = append(tab, []string{"Version:", version.Version()})
 
+	gitCommit := version.CommitID()
 	if gitCommit != "" && len(gitCommit) == 40 {
 		// git hash should be 40 char long
 		tab = append(tab, []string{"Git commit:", gitCommit})
 	}
 
+	buildTime := version.BuildTime()
 	if buildTime != "" {
 		tab = append(tab, []string{"Built:", buildTime})
 	}
@@ -1311,7 +1560,7 @@ func (c *Handler) Info(args []string) (Result, error) {
 
 	if c.CfgParams.FlockerHubURL == "" {
 		// FlockerHubURL is not set so just use the default
-		c.CfgParams.FlockerHubURL = flockerHubURL
+		c.CfgParams.FlockerHubURL = version.FlockerHubURL()
 	}
 	tab = append(tab, []string{"FlockerHub URL:", c.CfgParams.FlockerHubURL})
 
@@ -1335,8 +1584,10 @@ func (c *Handler) Info(args []string) (Result, error) {
 
 // NewHandler ...
 func NewHandler(params ConfigParams, cfgFile, mdsCurr, mdsInit string) *Handler {
-	return &Handler{CfgParams: params,
+	return &Handler{
+		CfgParams:      params,
 		ConfigFile:     cfgFile,
 		MdsPathCurrent: mdsCurr,
-		MdsPathInitial: mdsInit}
+		MdsPathInitial: mdsInit,
+	}
 }

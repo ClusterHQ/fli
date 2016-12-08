@@ -25,13 +25,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ClusterHQ/fli/log"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
 )
@@ -138,17 +138,16 @@ func handleError(cmd *cobra.Command, e error) {
 }
 
 func newLogger() (*log.Logger, error) {
-	dir := "/var/log/fli"
-	logFile := filepath.Join(dir, "cmd.log")
+	logFile := filepath.Join(LogDir, CmdLogFilename)
 
-	os.MkdirAll(dir, (os.ModeDir | 0755))
+	os.MkdirAll(LogDir, (os.ModeDir | 0755))
 
 	fp, err := os.OpenFile(logFile, (os.O_CREATE | os.O_WRONLY | os.O_APPEND), 0666)
 	if err != nil {
 		return nil, err
 	}
 
-	return log.New(io.MultiWriter(fp), ""), nil
+	return log.New(io.MultiWriter(fp), "", (log.Ldate | log.Ltime)), nil
 }
 
 func init() {
@@ -201,6 +200,7 @@ fli synchronizes metadata with FlockerHub and can push and pull snapshots of vol
 		newUpdateCmd(ctx, h),
 		newVersionCmd(ctx, h),
 		newInfoCmd(ctx, h),
+		newDiagnosticsCmd(ctx, h),
 		complCmd,
 	}
 
@@ -255,6 +255,11 @@ If more than one matching result for the snapshot is found then it is treated as
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli clone --attributes '%v' --full '%v' '%v'",
+				attributesFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Clone(
@@ -264,6 +269,7 @@ If more than one matching result for the snapshot is found then it is treated as
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -332,6 +338,12 @@ func newConfigCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				offlineFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli config --url '%v' --token '%v' --offline '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				offlineFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Config(
@@ -342,6 +354,7 @@ func newConfigCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -419,6 +432,11 @@ func newCreateCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli create --attributes '%v' --full '%v' '%v'",
+				attributesFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Create(
@@ -428,6 +446,7 @@ func newCreateCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -492,6 +511,11 @@ func newInitCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				descriptionFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli init --attributes '%v' --description '%v' '%v'",
+				attributesFlag,
+				descriptionFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Init(
@@ -501,6 +525,7 @@ func newInitCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -598,6 +623,14 @@ func newListCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli list --all '%v' --volume '%v' --snapshot '%v' --branch '%v' --full '%v' '%v'",
+				allFlag,
+				volumeFlag,
+				snapshotFlag,
+				branchFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.List(
@@ -610,6 +643,7 @@ func newListCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -703,6 +737,12 @@ The following example explains how to pull a single snapshot of a volume
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli pull --url '%v' --token '%v' --full '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Pull(
@@ -713,6 +753,7 @@ The following example explains how to pull a single snapshot of a volume
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -804,6 +845,12 @@ The following example explains how to push a single snapshot of a volume
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli push --url '%v' --token '%v' --full '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Push(
@@ -814,6 +861,7 @@ The following example explains how to push a single snapshot of a volume
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -885,6 +933,10 @@ func newRemoveCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli remove --full '%v' '%v'",
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Remove(
@@ -893,6 +945,7 @@ func newRemoveCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -944,6 +997,11 @@ func newSetupCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 				forceFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli setup --zpool '%v' --force '%v' '%v'",
+				zpoolFlag,
+				forceFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Setup(
@@ -953,6 +1011,7 @@ func newSetupCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1045,6 +1104,14 @@ VOLUMESET and VOLUME could be a name or uuid.
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli snapshot --branch '%v' --new-branch '%v' --attributes '%v' --description '%v' --full '%v' '%v'",
+				branchFlag,
+				newbranchFlag,
+				attributesFlag,
+				descriptionFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Snapshot(
@@ -1057,6 +1124,7 @@ VOLUMESET and VOLUME could be a name or uuid.
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1168,6 +1236,13 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli sync --url '%v' --token '%v' --all '%v' --full '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				allFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Sync(
@@ -1179,6 +1254,7 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1279,6 +1355,13 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli fetch --url '%v' --token '%v' --all '%v' --full '%v' '%v'",
+				urlFlag,
+				tokenFlag,
+				allFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Fetch(
@@ -1290,6 +1373,7 @@ The FlockerHub URL and token filepath can be set one time using 'fli config' for
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1397,6 +1481,13 @@ The VOLUMESET, SNAPSHOT and VOLUME can be name or uuid. The BRANCH is always a n
 				fullFlag,
 				strings.Join(args, " "),
 			)
+			log.Printf("fli update --name '%v' --attributes '%v' --description '%v' --full '%v' '%v'",
+				nameFlag,
+				attributesFlag,
+				descriptionFlag,
+				fullFlag,
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Update(
@@ -1408,6 +1499,7 @@ The VOLUMESET, SNAPSHOT and VOLUME can be name or uuid. The BRANCH is always a n
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1471,6 +1563,9 @@ func newVersionCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			logger.Printf("fli version '%v'",
 				strings.Join(args, " "),
 			)
+			log.Printf("fli version '%v'",
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Version(
@@ -1478,6 +1573,7 @@ func newVersionCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1502,6 +1598,9 @@ func newInfoCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			logger.Printf("fli info '%v'",
 				strings.Join(args, " "),
 			)
+			log.Printf("fli info '%v'",
+				strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.Info(
@@ -1509,6 +1608,44 @@ func newInfoCmd(ctx context.Context, h CommandHandler) *cobra.Command {
 			)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
+			}
+
+			handleError(cmd, err)
+			displayOutput(cmd, res)
+		},
+	}
+
+	return cmd
+}
+
+func newDiagnosticsCmd(ctx context.Context, h CommandHandler) *cobra.Command {
+	var cmd = &cobra.Command{
+		Use: getMultiUseLine("diagnostics", []string{
+			"DIRECTORY",
+		}),
+		Short: "Record the system state, and zip it for sending out to clusterhq for further inspection",
+		Run: func(cmd *cobra.Command, args []string) {
+			var (
+				err error
+			)
+			logger, err := newLogger()
+			handleError(cmd, err)
+
+			logger.Printf("fli diagnostics '%v'",
+				strings.Join(args, " "),
+			)
+			log.Printf("fli diagnostics '%v'",
+				strings.Join(args, " "),
+			)
+
+			var res Result
+			res, err = h.Diagnostics(
+				args,
+			)
+			if err != nil {
+				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -1536,4 +1673,5 @@ type CommandHandler interface {
 	Update(name string, attributes string, description string, full bool, args []string) (Result, error)
 	Version(args []string) (Result, error)
 	Info(args []string) (Result, error)
+	Diagnostics(args []string) (Result, error)
 }

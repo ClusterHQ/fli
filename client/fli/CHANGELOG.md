@@ -1,4 +1,10 @@
-# 0.6.0 (2016-11-29)
+# 0.7.0 (2016-12-06)
+
+### Features
+* Performance improvement when cloning snapshots. Added upgrade code to migrate from versions 0.6.0 or lower.
+* Improved volumeset by doing all the lookups on the database instead of fetching it over the wire.
+
+## 0.6.0 (2016-11-29)
 
 ### Features
 * Added new command `fli fetch` to fetch metadata from FlockerHub

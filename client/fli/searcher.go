@@ -17,8 +17,6 @@
 package fli
 
 import (
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/ClusterHQ/fli/dp/metastore"
@@ -27,35 +25,9 @@ import (
 	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/miscutils/uuid"
 	"github.com/gobwas/glob"
 )
-
-// isID returns a true or false if the string is UUID.
-// Uses regular expression to validate the input string.
-func isUUID(s string) (bool, error) {
-	p := `^\w{8,8}-\w{4,4}-\w{4,4}-\w{4,4}-\w{12,12}$`
-	isID, err := regexp.MatchString(p, s)
-	if err != nil {
-		return isID, errors.New(err)
-	}
-
-	isShrunkID, err := isShrunkUUID(s)
-	if err != nil {
-		return (isID || isShrunkID), err
-	}
-
-	return (isID || isShrunkID), nil
-}
-
-func isShrunkUUID(s string) (bool, error) {
-	p := `^\w{8,8}-\w{4,4}$`
-	ret, err := regexp.MatchString(p, s)
-	if err != nil {
-		return ret, errors.New(err)
-	}
-
-	return ret, nil
-}
 
 // FindVolumesets reports whether the search matches the VolumeSets in mds
 // search syntax is
@@ -67,72 +39,54 @@ func isShrunkUUID(s string) (bool, error) {
 //		/chq/volset?
 //		(empty string)
 func FindVolumesets(mds metastore.Syncable, search string) ([]*volumeset.VolumeSet, error) {
-	var (
-		vsFound = []*volumeset.VolumeSet{}
-	)
-
-	check, err := isUUID(search)
+	searchByUUID, err := uuid.IsUUID(search)
 	if err != nil {
-		return vsFound, err
+		return nil, err
 	}
 
-	if !check {
-		// Search string is not a UUID or Shrunk UUID
-		vs, err := metastore.GetVolumeSets(mds, volumeset.Query{})
-		if err != nil {
-			return vsFound, errors.New(err)
-		}
+	var vsFound = []*volumeset.VolumeSet{}
 
-		var g glob.Glob
-		switch {
-		case search == "":
-			g = glob.MustCompile("*")
-		case search[0] == '/':
-			g = glob.MustCompile(search + "*")
-		default:
-			g = glob.MustCompile("*" + search)
-		}
-
-		for _, v := range vs {
-			fullname := filepath.Join(v.Prefix, v.Name)
-			if g.Match(fullname) {
-				vsFound = append(vsFound, v)
-			}
-		}
-	} else {
-		// Search is an id then simply search for that ID
-		isShrunkID, err := isShrunkUUID(search)
+	if searchByUUID {
+		isShrunkID, err := uuid.IsShrunkUUID(search)
 		if err != nil {
-			return vsFound, err
+			return nil, err
 		}
 
 		if isShrunkID {
-			volsets, err := metastore.GetVolumeSets(mds, volumeset.Query{})
+			vsFound, err = metastore.GetVolumeSets(
+				mds,
+				volumeset.Query{
+					ShortUUID: search,
+				},
+			)
 			if err != nil {
-				return vsFound, errors.New(err)
-			}
-
-			for _, v := range volsets {
-				if ShrinkUUIDs(v.ID.String()) == search {
-					vsFound = append(vsFound, v)
-				}
+				return nil, errors.New(err)
 			}
 		} else {
 			vs, err := metastore.GetVolumeSet(mds, volumeset.NewID(search))
 			if err != nil {
 				_, ok := err.(*metastore.ErrVolumeSetNotFound)
 				if !ok {
-					return vsFound, errors.New(err)
+					return nil, errors.New(err)
 				}
 			} else {
 				vsFound = append(vsFound, vs)
 			}
 		}
-
+	} else {
+		vsFound, err = metastore.GetVolumeSets(
+			mds,
+			volumeset.Query{
+				RegExName: search,
+			},
+		)
+		if err != nil {
+			return nil, errors.New(err)
+		}
 	}
 
 	if len(vsFound) == 0 {
-		return vsFound, &ErrVolSetNotFound{Name: search}
+		return nil, &ErrVolSetNotFound{Name: search}
 	}
 
 	return vsFound, nil
@@ -231,7 +185,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 		snapFound = []*snapshot.Snapshot{}
 	)
 
-	check, err := isUUID(search)
+	check, err := uuid.IsUUID(search)
 	if err != nil {
 		return snapFound, err
 	}
@@ -258,7 +212,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 			snapname = "*"
 		}
 
-		check, err := isUUID(snapname)
+		check, err := uuid.IsUUID(snapname)
 		if err != nil {
 			return snapFound, err
 		}
@@ -286,7 +240,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 			}
 		} else {
 			// Search is an id then simply search for that ID
-			isShrunkID, err := isShrunkUUID(snapname)
+			isShrunkID, err := uuid.IsShrunkUUID(snapname)
 			if err != nil {
 				return snapFound, err
 			}
@@ -300,7 +254,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 					}
 
 					for _, snap := range snaps {
-						if ShrinkUUIDs(snap.ID.String()) == snapname {
+						if uuid.ShrinkUUID(snap.ID.String()) == snapname {
 							snapFound = append(snapFound, snap)
 						}
 					}
@@ -319,7 +273,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 		}
 	} else {
 		// Search is an id then simply search for that ID
-		isShrunkID, err := isShrunkUUID(search)
+		isShrunkID, err := uuid.IsShrunkUUID(search)
 		if err != nil {
 			return snapFound, err
 		}
@@ -331,7 +285,7 @@ func FindSnapshots(mds metastore.Syncable, search string) ([]*snapshot.Snapshot,
 			}
 
 			for _, snap := range snaps {
-				if ShrinkUUIDs(snap.ID.String()) == search {
+				if uuid.ShrinkUUID(snap.ID.String()) == search {
 					snapFound = append(snapFound, snap)
 				}
 			}
@@ -379,7 +333,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 		volFound = []*volume.Volume{}
 	)
 
-	check, err := isUUID(search)
+	check, err := uuid.IsUUID(search)
 	if err != nil {
 		return volFound, err
 	}
@@ -406,7 +360,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 			volname = "*"
 		}
 
-		check, err := isUUID(volname)
+		check, err := uuid.IsUUID(volname)
 		if err != nil {
 			return volFound, err
 		}
@@ -434,7 +388,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 			}
 		} else {
 			// Search is an id then simply search for that ID
-			isShrunkID, err := isShrunkUUID(volname)
+			isShrunkID, err := uuid.IsShrunkUUID(volname)
 			if err != nil {
 				return volFound, err
 			}
@@ -449,7 +403,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 					}
 
 					for _, vol := range vols {
-						if ShrinkUUIDs(vol.ID.String()) == volname {
+						if uuid.ShrinkUUID(vol.ID.String()) == volname {
 							volFound = append(volFound, vol)
 						}
 					}
@@ -468,7 +422,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 		}
 	} else {
 		// Search is an id then simply search for that ID
-		isShrunkID, err := isShrunkUUID(search)
+		isShrunkID, err := uuid.IsShrunkUUID(search)
 		if err != nil {
 			return volFound, err
 		}
@@ -480,7 +434,7 @@ func FindVolumes(mds metastore.Client, search string) ([]*volume.Volume, error) 
 			}
 
 			for _, vol := range vols {
-				if ShrinkUUIDs(vol.ID.String()) == search {
+				if uuid.ShrinkUUID(vol.ID.String()) == search {
 					volFound = append(volFound, vol)
 				}
 			}

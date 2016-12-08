@@ -72,7 +72,7 @@ func finish() {
 
 // Clone from a snapshot. Wrapper for the libzfs_clone.
 // TODO: the properties arg are ignored for now, which should be reintroduced.
-func clone(dest string, src string) error {
+func clone(dest string, src string, autoMount datalayer.MountType) error {
 	props, err := nvlistAlloc(C.NV_UNIQUE_NAME, 0)
 	if err != nil {
 		return err

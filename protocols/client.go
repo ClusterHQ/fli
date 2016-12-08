@@ -35,16 +35,12 @@ type Client struct {
 
 var (
 	defaultTransport = &http.Transport{
-		TLSHandshakeTimeout: 5 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !VerifyCert},
 	}
 
 	defaultClient = &Client{
 		Client: &http.Client{
-			// TODO: How long is the timeout for a long transfer?
-			// Probably add a parameter for each GetCLient() call to allow set this on
-			// a per rquest bases.
-			Timeout:   time.Second * 0,
 			Transport: defaultTransport,
 		},
 	}

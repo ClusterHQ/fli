@@ -97,7 +97,11 @@ func (s *fsStorage) EmptyBlobID(vsid volumeset.ID) (blob.ID, error) {
 	return emptyID, nil
 }
 
-func (s *fsStorage) CreateVolume(vsid volumeset.ID, id blob.ID) (volume.ID, securefilepath.SecureFilePath, error) {
+func (s *fsStorage) CreateVolume(
+	vsid volumeset.ID,
+	id blob.ID,
+	_ datalayer.MountType,
+) (volume.ID, securefilepath.SecureFilePath, error) {
 	exists, err := s.SnapshotExists(id)
 	if err != nil {
 		return volume.NilID(), nil, fmt.Errorf("Failed to check if snapshot exists: %v", err)
@@ -127,11 +131,6 @@ func (s *fsStorage) CreateVolume(vsid volumeset.ID, id blob.ID) (volume.ID, secu
 	os.MkdirAll(volumePath.Parent().Path(), 0700)
 	err = copyTree(blobPath, volumePath)
 	return vid, volumePath, err
-}
-
-// GetVolumeForSnapshot just calls CreateVolume as this storage does not keep a snapshot lineage.
-func (s *fsStorage) GetVolumeForSnapshot(vsid volumeset.ID, id blob.ID) (volume.ID, securefilepath.SecureFilePath, error) {
-	return s.CreateVolume(vsid, id)
 }
 
 func (s *fsStorage) CreateSnapshot(vsid volumeset.ID, ssid snapshot.ID, vid volume.ID) (blob.ID, error) {
@@ -175,8 +174,16 @@ func (s *fsStorage) DestroySnapshot(id blob.ID) error {
 	return os.RemoveAll(path.Path())
 }
 
-func (s *fsStorage) BlobMountPointPath(id blob.ID) (securefilepath.SecureFilePath, error) {
-	return s.blobPath(id)
+func (s *fsStorage) MountBlob(id blob.ID) (string, error) {
+	p, err := s.blobPath(id)
+	if err != nil {
+		return "", err
+	}
+	return p.Path(), nil
+}
+
+func (s *fsStorage) Unmount(_ string) error {
+	return nil
 }
 
 func (s *fsStorage) volumeMountPointPath(id volume.ID) (securefilepath.SecureFilePath, error) {

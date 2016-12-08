@@ -77,6 +77,12 @@ type (
 		Attr attrs.Attrs `json:"attr"`
 
 		Search string `json:"search"`
+
+		// Short UUID specifies the short UUID to match with ID.
+		ShortUUID string
+
+		// RegExName specifies the regulr expression used to match prefix + name
+		RegExName string
 	}
 )
 
@@ -165,10 +171,12 @@ func (vs *VolumeSet) MetaEqual(that *VolumeSet) bool {
 
 // Matches ..
 func (q Query) Matches(vs VolumeSet) bool {
+	// TODO: Any one uses this? UI?
 	if !vs.Attrs.Matches(q.Attr) {
 		return false
 	}
 
+	// TODO: No need to check ID? It is taken care of by MDS layer
 	if !q.ID.IsNilID() && !q.ID.Equals(vs.ID) {
 		return false
 	}
@@ -197,6 +205,7 @@ func (q Query) Matches(vs VolumeSet) bool {
 		return false
 	}
 
+	// TODO: Used by UI?
 	if q.Search != "" &&
 		!strings.Contains(vs.Name, q.Search) &&
 		!strings.Contains(vs.CreatorUsername, q.Search) &&

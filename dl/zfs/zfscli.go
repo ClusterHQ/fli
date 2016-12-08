@@ -19,6 +19,7 @@
 package zfs
 
 import (
+	"log"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -31,9 +32,15 @@ import (
 
 // run executes one ZFS call using the given arguments synchronously and
 // returns the output of the exec call and error if any
-func run(args ...string) ([]byte, error) {
-	// log.Printf("zfs.cli.run(%#v)", args)
-	return exec.Command("zfs", args...).Output()
+func run(args ...string) (string, error) {
+	o, err := exec.Command("zfs", args...).Output()
+	if err == nil {
+		return string(o), nil
+	}
+	if e, ok := err.(*exec.ExitError); ok {
+		return string(e.Stderr), err
+	}
+	return string(o), errors.New(err)
 }
 
 // list returns a slice of strings giving the names of all filesystems beneath
@@ -86,13 +93,23 @@ func destroySnapshot(fs []string, deferDel bool) error {
 	return destroy(fs[0])
 }
 
-func clone(path string, b string) error {
-	// Form volume ID (format: zppol/uuid)
+func clone(path string, b string, autoMount datalayer.MountType) error {
+	if autoMount {
+		o, err := run([]string{"clone", "-o", "mountpoint=/" + path, b, path}...)
+		if err != nil {
+			return errors.Errorf("%#v %#v", o, err)
+		}
+		return nil
+	}
+
+	// No auto mount, create the clone, and mount manually
 	o, err := run([]string{"clone", b, path}...)
 	if err != nil {
 		return errors.Errorf("%#v %#v", o, err)
 	}
-	return nil
+
+	_, err = mount(path)
+	return err
 }
 
 func rollback(fs string) error {
@@ -119,6 +136,13 @@ func rollback(fs string) error {
 			return err
 		}
 	*/
+	err := unmount(fs)
+	if err != nil {
+		log.Println("unmount failed.", fs, err)
+		// Note: Don't want to return as an error, not much we can do about it.
+	}
+
+	// Note: Destroy will fail, no ned to log it each time to pollute the log file
 	run([]string{"destroy", fs}...)
 	return nil
 }
@@ -140,10 +164,11 @@ func finish() {
 }
 
 func createFileSystem(path string) error {
-	o, err := run([]string{"create", path}...)
+	o, err := run([]string{"create", "-o", "mountpoint=none", path}...)
 	if err != nil {
 		return errors.Errorf("%#v %#v", o, err)
 	}
+
 	return nil
 }
 

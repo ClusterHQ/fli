@@ -227,17 +227,16 @@ func handleError(cmd *cobra.Command, e error) {
 }
 
 func newLogger() (*log.Logger, error) {
-	dir := "/var/log/fli"
-	logFile := filepath.Join(dir, "cmd.log")
+	logFile := filepath.Join(LogDir, CmdLogFilename)
 
-	os.MkdirAll(dir, (os.ModeDir | 0755))
+	os.MkdirAll(LogDir, (os.ModeDir | 0755))
 
 	fp, err := os.OpenFile(logFile, (os.O_CREATE | os.O_WRONLY | os.O_APPEND), 0666)
 	if err != nil {
 		return nil, err
 	}
 
-	return log.New(io.MultiWriter(fp), ""), nil
+	return log.New(io.MultiWriter(fp), "", (log.Ldate | log.Ltime)), nil
 }
 
 func init() {
@@ -286,6 +285,10 @@ func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *co
 			{{replaceDash .Name}}Flag,{{end}}
 			strings.Join(args, " "),
 			)
+			log.Printf("{{.Prefix}} {{.Name}} {{range .Flags}}--{{.Name}} '%v' {{end}}'%v'",{{range .Flags}}
+			{{replaceDash .Name}}Flag,{{end}}
+			strings.Join(args, " "),
+			)
 
 			var res Result
 			res, err = h.{{firstCharToUpper .Name}}({{range .Flags}}
@@ -294,6 +297,7 @@ func new{{firstCharToUpper .Name}}Cmd(ctx context.Context, h CommandHandler) *co
 				)
 			if err != nil {
 				logger.Printf("ERROR: %v", err.Error())
+				log.Printf("[ERROR] %v", err.Error())
 			}
 
 			handleError(cmd, err)
@@ -435,11 +439,11 @@ func (g *Generator) Generate() {
 			"sort",
 			"fmt",
 			"bytes",
+			"log",
 			"text/tabwriter",
 		},
 		RelImports: []string{
 			"github.com/spf13/cobra",
-			"github.com/ClusterHQ/fli/log",
 			"golang.org/x/net/context",
 		},
 		Pkg:  g.pkg,

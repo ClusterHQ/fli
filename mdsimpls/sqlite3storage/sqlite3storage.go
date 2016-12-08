@@ -18,6 +18,7 @@ package sqlite3storage
 
 import (
 	"database/sql"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -33,7 +34,9 @@ import (
 	"github.com/ClusterHQ/fli/meta/util"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
+	miscuuid "github.com/ClusterHQ/fli/miscutils/uuid"
 	"github.com/ClusterHQ/fli/securefilepath"
+	"github.com/gobwas/glob"
 
 	// So CLI and round trip tests can run properly
 	_ "github.com/mattn/go-sqlite3"
@@ -685,7 +688,188 @@ func getVolumeSets(tx *sql.Tx, q volumeset.Query) ([]*volumeset.VolumeSet, error
 	}
 
 	return vss, nil
+}
 
+func getVolumeSetsRegExName(tx *sql.Tx, q volumeset.Query) ([]*volumeset.VolumeSet, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	stmtAttr := "SELECT [id], [key], [value] FROM attributes AS a"
+	stmtVS := "SELECT [id] FROM [volumeset] AS v"
+
+	params := []interface{}{}
+	if !q.ID.IsNilID() {
+		stmtVS += " WHERE id=?"
+		params = append(params, q.ID.String())
+	}
+
+	// Sqlite3 returned error "too many parameters" when it is over a few hundreds IDs(500 worked, 1,000 failed).
+	// Since Sqlite3 is used locally, it is not a security issue as much as in postgres, using direct ID string instead
+	// of 'IN'.
+	if len(q.IDs) != 0 {
+		stmtVS += " WHERE id IN ("
+		for idx, id := range q.IDs {
+			if idx != 0 {
+				stmtVS += ", "
+			}
+			stmtVS += "\"" + id.String() + "\""
+		}
+		stmtVS += ")"
+	}
+
+	statement :=
+		"SELECT tblVS.id, key, value FROM (" + stmtVS + ") tblVS LEFT JOIN (" +
+			stmtAttr + ") tblAttr ON tblVS.id = tblAttr.id"
+	stmt, err := tx.Prepare(statement)
+	if err != nil {
+		return nil, errors.Errorf("VolumeSet prepare query failed: %v", err)
+	}
+
+	rows, err = stmt.Query(params...)
+	if err != nil {
+		return nil, errors.Errorf("VolumeSet query failed: %v", err)
+	}
+	defer rows.Close()
+
+	vss := []*volumeset.VolumeSet{}
+	vsmap := make(map[string]*volumeset.VolumeSet)
+	for rows.Next() {
+		var (
+			id    string
+			key   sql.NullString
+			value sql.NullString
+		)
+
+		err = rows.Scan(&id, &key, &value)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, errors.Errorf("Failed to read from rows: %v\n", err)
+		}
+
+		if vs, has := vsmap[id]; has {
+			if key.Valid && value.Valid {
+				vs.Attrs[key.String] = value.String
+			}
+		} else {
+			vs := &volumeset.VolumeSet{
+				ID: volumeset.NewID(id),
+			}
+			vss = append(vss, vs)
+			vs.Attrs = make(attrs.Attrs, 0)
+			if key.Valid && value.Valid {
+				vs.Attrs[key.String] = value.String
+			}
+			vsmap[id] = vs
+		}
+	}
+
+	var g glob.Glob
+	switch {
+	case q.RegExName == "":
+		g = glob.MustCompile("*")
+	case q.RegExName[0] == '/':
+		g = glob.MustCompile(q.RegExName + "*")
+	default:
+		g = glob.MustCompile("*" + q.RegExName)
+	}
+
+	vsids := []volumeset.ID{}
+	for _, vs := range vss {
+		vs.RetrieveKnownKeys()
+		fullname := filepath.Join(vs.Prefix, vs.Name)
+		if g.Match(fullname) {
+			vsids = append(vsids, vs.ID)
+		}
+	}
+
+	if len(vsids) == 0 {
+		return nil, nil
+	}
+
+	return getVolumeSets(
+		tx,
+		volumeset.Query{
+			IDs:       vsids,
+			Offset:    q.Offset,
+			Limit:     q.Limit,
+			SortBy:    q.SortBy,
+			OrderType: q.OrderType,
+		},
+	)
+}
+
+func getVolumeSetsShortUUID(tx *sql.Tx, q volumeset.Query) ([]*volumeset.VolumeSet, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	statement := "SELECT [id] FROM [volumeset] AS v"
+	params := []interface{}{}
+	if !q.ID.IsNilID() {
+		statement += " WHERE id=?"
+		params = append(params, q.ID.String())
+	}
+
+	// Sqlite3 returned error "too many parameters" when it is over a few hundreds IDs(500 worked, 1,000 failed).
+	// Since Sqlite3 is used locally, it is not a security issue as much as in postgres, using direct ID string instead
+	// of 'IN'.
+	if len(q.IDs) != 0 {
+		statement += " WHERE id IN ("
+		for idx, id := range q.IDs {
+			if idx != 0 {
+				statement += ", "
+			}
+			statement += "\"" + id.String() + "\""
+		}
+		statement += ")"
+	}
+
+	stmt, err := tx.Prepare(statement)
+	if err != nil {
+		return nil, errors.Errorf("VolumeSet prepare query failed: %v", err)
+	}
+
+	rows, err = stmt.Query(params...)
+	if err != nil {
+		return nil, errors.Errorf("VolumeSet query failed: %v", err)
+	}
+	defer rows.Close()
+
+	vsids := []volumeset.ID{}
+	for rows.Next() {
+		var id string
+		err = rows.Scan(&id)
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, errors.Errorf("Failed to read from rows: %v\n", err)
+		}
+
+		if miscuuid.ShrinkUUID(id) == q.ShortUUID {
+			vsids = append(vsids, volumeset.NewID(id))
+		}
+	}
+
+	if len(vsids) == 0 {
+		return nil, nil
+	}
+
+	return getVolumeSets(
+		tx,
+		volumeset.Query{
+			IDs:       vsids,
+			Offset:    q.Offset,
+			Limit:     q.Limit,
+			SortBy:    q.SortBy,
+			OrderType: q.OrderType,
+		},
+	)
 }
 
 // GetVolumeSets ...
@@ -696,8 +880,15 @@ func (store *Sqlite3Storage) GetVolumeSets(q volumeset.Query) ([]*volumeset.Volu
 	}
 	defer tx.Rollback()
 
-	volsets, err := getVolumeSets(tx, q)
-	return volsets, err
+	if q.ShortUUID != "" {
+		return getVolumeSetsShortUUID(tx, q)
+	}
+
+	if q.RegExName != "" {
+		return getVolumeSetsRegExName(tx, q)
+	}
+
+	return getVolumeSets(tx, q)
 }
 
 // GetTip ...

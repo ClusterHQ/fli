@@ -18,7 +18,9 @@ package zfs
 
 import (
 	"log"
+	"os"
 	"strings"
+	"syscall"
 
 	"github.com/ClusterHQ/fli/dl/datalayer"
 	"github.com/ClusterHQ/fli/errors"
@@ -133,58 +135,17 @@ func (z ZFS) volumePath(vsid volumeset.ID, vid volume.ID) string {
 }
 
 // CreateVolume is the ZFS implements of the Storage interface
-func (z ZFS) CreateVolume(vsid volumeset.ID, b blob.ID) (volume.ID, securefilepath.SecureFilePath, error) {
+func (z ZFS) CreateVolume(
+	vsid volumeset.ID,
+	b blob.ID,
+	autoMount datalayer.MountType,
+) (volume.ID, securefilepath.SecureFilePath, error) {
 	vid := volume.NewID(uuidPkg.New())
-
-	err := clone(z.volumePath(vsid, vid), b.String())
+	err := clone(z.volumePath(vsid, vid), b.String(), autoMount)
 	if err != nil {
 		return volume.NilID(), nil, err
 	}
 
-	path, err := z.volumeMountPointPath(vsid, vid)
-	// TODO clean up on a failure.
-	return vid, path, err
-}
-
-// GetVolumeForSnapshot is the ZFS implements of the Storage interface
-func (z ZFS) GetVolumeForSnapshot(vsid volumeset.ID, b blob.ID) (volume.ID, securefilepath.SecureFilePath, error) {
-	var vid volume.ID
-
-	vsname := z.volumesetPath(vsid)
-	s := strings.Split(b.String(), "@")
-	if len(s) != 2 {
-		return vid, nil, errors.Errorf("Invalid blob id %v", b)
-	}
-
-	vname := s[0]
-	sname := s[1]
-	if vname == vsname && sname == "empty" {
-		// Special case, starting from the original empty blob.
-		return z.CreateVolume(vsid, b)
-	}
-	if !strings.HasPrefix(vname, vsname+"/") {
-		return vid, nil, errors.Errorf("Blob id %v does not match volumeset %v", b, vsid)
-	}
-
-	// The blob must exist.
-	exists, err := z.SnapshotExists(b)
-	if err != nil {
-		return vid, nil, err
-	}
-	if !exists {
-		return vid, nil, errors.Errorf("Blob %v does not exist", b)
-	}
-
-	written, err := getUint64Property(vname, "written@"+sname)
-	if err != nil {
-		return vid, nil, err
-	}
-	if written > 0 {
-		// The volume has been modified since the snapshot.
-		return z.CreateVolume(vsid, b)
-	}
-
-	vid = volume.NewID(strings.TrimPrefix(vname, vsname+"/"))
 	path, err := z.volumeMountPointPath(vsid, vid)
 	// TODO clean up on a failure.
 	return vid, path, err
@@ -217,31 +178,14 @@ func (z ZFS) SnapshotExists(b blob.ID) (bool, error) {
 	return exists(b.String()), nil
 }
 
-// BlobMountPointPath is the ZFS implementation of Storage interface
-func (z ZFS) BlobMountPointPath(b blob.ID) (securefilepath.SecureFilePath, error) {
-	s1 := strings.Split(b.String(), "/")
-	// Leave out the last one
-	s2 := s1[:len(s1)-1]
-	// Last one has the snapshot name
-	s3 := strings.Split(s1[len(s1)-1], "@")
-	if len(s3) != 2 {
-		return nil, errors.Errorf("ZFS.BlobMountPointPath invalid blob id %v", b)
-	}
-
-	// Build secure file path for ZFS snapshot
-	path, err := securefilepath.New("/")
+// MountBlob is the ZFS implementation of Storage interface
+func (z ZFS) MountBlob(b blob.ID) (string, error) {
+	mntPath, err := mount(b.String())
 	if err != nil {
-		return nil, errors.New(err)
+		return "", errors.New(err)
 	}
 
-	for _, segment := range append(s2, []string{s3[0], snapshotRoot, snapshotDir, s3[1]}...) {
-		path, err = path.Child(segment)
-		if err != nil {
-			return nil, errors.New(err)
-		}
-	}
-
-	return path, nil
+	return mntPath, nil
 }
 
 // volumeMountPointPath returns a path where the volume is mounted.
@@ -287,6 +231,44 @@ func (z ZFS) Validate() error {
 	err := validate(z.zpool)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// Unmount implements datalayer.Storage interface
+func (z ZFS) Unmount(path string) error {
+	return unmount(path)
+}
+
+// mount takes a ZFS dataset, create a directory and mount it. The directory path is the
+// as the given dataset under "/". Dataset can be snapshots or file systems.
+func mount(path string) (string, error) {
+	mntPath := "/" + path
+	err := os.MkdirAll(mntPath, os.ModePerm)
+	if err != nil {
+		return "", errors.New(err)
+	}
+
+	err = syscall.Mount(path, mntPath, "zfs", 0, "rw")
+	if err != nil {
+		return "", errors.New(err)
+	}
+
+	return mntPath, nil
+}
+
+// unmount is the opposite of mount.
+func unmount(path string) error {
+	mntPath := "/" + path
+	err := syscall.Unmount(mntPath, 0)
+	if err != nil {
+		return errors.New(err)
+	}
+
+	err = os.Remove(mntPath)
+	if err != nil {
+		return errors.New(err)
 	}
 
 	return nil

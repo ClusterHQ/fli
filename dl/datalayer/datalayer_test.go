@@ -53,7 +53,7 @@ func basicTests(t *testing.T, s datalayer.Storage) error {
 	assert.NoError(t, err)
 	assert.Equal(t, p1, p2)
 
-	vid, _, err := s.CreateVolume(vsid, p1)
+	vid, _, err := s.CreateVolume(vsid, p1, datalayer.AutoMount)
 	if err != nil {
 		t.Error("Create volume from empty blob failed", err)
 		return err
@@ -133,7 +133,7 @@ func spaceTests(t *testing.T, s datalayer.Storage) error {
 	// Create a new volume set
 	vsid := volumeset.NewRandomID()
 	p, _ := s.EmptyBlobID(vsid)
-	vid, vpath, _ := s.CreateVolume(vsid, p)
+	vid, vpath, _ := s.CreateVolume(vsid, p, datalayer.AutoMount)
 
 	// Create a snapshot
 	blobid1, _ := s.CreateSnapshot(vsid, snapshot.NewRandomID(), vid)
@@ -246,7 +246,7 @@ func deleteVolumeSet(t *testing.T, s datalayer.Storage) error {
 		return err
 	}
 
-	vid, _, err := s.CreateVolume(vsid, p1)
+	vid, _, err := s.CreateVolume(vsid, p1, datalayer.AutoMount)
 	if err != nil {
 		t.Error("Create volume from empty blob failed", err)
 		return err

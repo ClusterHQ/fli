@@ -136,7 +136,7 @@ func (d *decoder) Decode() ([]record.Record, error) {
 
 		if r == nil {
 			// Failed to decode, likely something went wrong
-			return nil, errors.New("Failed to read records from soruce")
+			return nil, errors.New("Failed to read records from source")
 		}
 		err = r.FromBinary(d.src)
 		if err != nil {

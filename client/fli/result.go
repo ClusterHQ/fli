@@ -25,6 +25,7 @@ import (
 	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
+	uuid "github.com/ClusterHQ/fli/miscutils/uuid"
 )
 
 type (
@@ -115,9 +116,9 @@ func snapshotTable(tabCount int, full bool, snaps []*snapshot.Snapshot) [][]stri
 		creator := snap.Creator
 
 		if !full {
-			id = ShrinkUUIDs(id)
-			owner = ShrinkUUIDs(snap.Owner)
-			creator = ShrinkUUIDs(snap.Creator)
+			id = uuid.ShrinkUUID(id)
+			owner = uuid.ShrinkUUID(snap.Owner)
+			creator = uuid.ShrinkUUID(snap.Creator)
 		}
 
 		row := []string{
@@ -173,8 +174,8 @@ func volumesetTable(tabCount int, full bool, volsets []*volumeset.VolumeSet) [][
 		creator := volset.Creator
 
 		if !full {
-			id = ShrinkUUIDs(id)
-			creator = ShrinkUUIDs(volset.Creator)
+			id = uuid.ShrinkUUID(id)
+			creator = uuid.ShrinkUUID(volset.Creator)
 		}
 
 		if volset.Prefix != "" {
@@ -259,7 +260,7 @@ func volumeTables(tabCount int, full bool, vols []*volume.Volume) [][]string {
 		id := vol.ID.String()
 
 		if !full {
-			id = ShrinkUUIDs(id)
+			id = uuid.ShrinkUUID(id)
 		}
 
 		row := []string{

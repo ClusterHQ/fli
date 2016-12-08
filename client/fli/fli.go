@@ -40,18 +40,28 @@ import (
 	"github.com/ClusterHQ/fli/meta/snapshot"
 	"github.com/ClusterHQ/fli/meta/volume"
 	"github.com/ClusterHQ/fli/meta/volumeset"
+	"github.com/ClusterHQ/fli/miscutils/uuid"
 	"github.com/ClusterHQ/fli/securefilepath"
+	"github.com/ClusterHQ/fli/version"
 	"golang.org/x/net/context"
 )
 
 //go:generate go run ../cmd/fligen/main.go -yaml cmd.yml -output cmds_gen.go -package fli
 
 const (
+	// LogDir ...
+	LogDir = "/var/log/fli"
+
+	// CmdLogFilename ...
+	CmdLogFilename = "cmd.log"
+
+	// FliLogFilename ...
+	FliLogFilename = "fli.log"
+
 	configDir      = ".fli"
 	configFile     = "config"
 	mdsFileCurrent = "mds_current"
 	mdsFileInitial = "mds_initial"
-	logDir         = "/var/log/fli"
 
 	byteSz     = 1.0
 	kilobyteSz = 1024 * byteSz
@@ -87,6 +97,7 @@ type (
 )
 
 var (
+	_ Result         = &CmdOutput{}
 	_ CommandHandler = &Handler{}
 
 	usageTemplate = `Usage:{{if .Runnable}}
@@ -124,7 +135,6 @@ func (b blobDiff) DownloadBlobDiff(
 	vsid volumeset.ID,
 	ssid snapshot.ID,
 	base blob.ID,
-	reuseVolume bool,
 	token string,
 	dspuburl string,
 ) (blob.ID, uint64, error) {
@@ -134,7 +144,6 @@ func (b blobDiff) DownloadBlobDiff(
 		vsid,
 		ssid,
 		base,
-		reuseVolume,
 		token,
 		executor.NewCommonExecutor(),
 		b.hf,
@@ -284,7 +293,7 @@ func getStorage(zpool string) (datalayer.Storage, error) {
 }
 
 func validateName(name string) error {
-	isID, err := isUUID(name)
+	isID, err := uuid.IsUUID(name)
 	if err != nil {
 		return err
 	}
@@ -322,38 +331,28 @@ func handleZFSErr(err error) error {
 	switch err.(type) {
 	case *zfs.ErrZfsNotFound:
 		return errors.Errorf(`Missing ZFS kernel module
-Visit %s for instructions to install ZFS`, zfsReferenceURL)
+Visit %s for instructions to install ZFS`, version.Version())
 	case *zfs.ErrZfsUtilsNotFound:
 		return errors.Errorf(`Missing ZFS utilities
-Visit %s for instructions to install ZFS utilities`, zfsReferenceURL)
+Visit %s for instructions to install ZFS utilities`, version.ZFSReferenceURL())
 	case *zfs.ErrZpoolNotFound:
 		return errors.Errorf(`%s
-Visit %s for instructions to create ZPOOL`, err.Error(), zfsReferenceURL)
+Visit %s for instructions to create ZPOOL`, err.Error(), version.ZFSReferenceURL())
 
 	}
 
 	return err
 }
 
-// ShrinkUUIDs reduces the UUID from 32 char long string to 12 char long ID
-func ShrinkUUIDs(UUID string) string {
-	if UUID == "" || len(UUID) != (32+4) {
-		// DEFAULT UUID SIZE IS 32 + 4 DASHES
-		return UUID
-	}
-
-	return UUID[:8] + "-" + UUID[len(UUID)-4:]
-}
-
 // Execute ...
 func Execute() {
-	os.MkdirAll(logDir, (os.ModeDir | 0755))
-	if _, err := os.Stat(logDir); err != nil {
+	os.MkdirAll(LogDir, (os.ModeDir | 0755))
+	if _, err := os.Stat(LogDir); err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
-	logFile := filepath.Join(logDir, "fli.log")
+	logFile := filepath.Join(LogDir, FliLogFilename)
 	_, err := os.Stat(logFile)
 	if err != nil && os.IsExist(err) {
 		fmt.Println(err.Error())
@@ -376,6 +375,7 @@ func Execute() {
 	if !cfg.Exists() {
 		if err := cfg.CreateFile(); err != nil {
 			fmt.Printf("Failed to create configuration file (%v)\n", err.Error())
+			log.Fatalf("Failed to create configuration file (%v)\n", err.Error())
 			os.Exit(1)
 		}
 	}
@@ -383,6 +383,7 @@ func Execute() {
 	params, err := cfg.ReadConfig()
 	if err != nil {
 		fmt.Printf("Failed to read configuration file (%v)\n", err.Error())
+		log.Fatalf("Failed to read configuration file (%v)\n", err.Error())
 		os.Exit(1)
 	}
 
@@ -393,7 +394,13 @@ func Execute() {
 		filepath.Join(getHomeDir(), configDir, mdsFileInitial),
 	)
 
-	url := flockerHubURL
+	if err := handler.upgrade(); err != nil {
+		fmt.Printf("Failed upgrade clones due to version mismatch (%v)\n", err.Error())
+		log.Fatalf("Failed upgrade clones due to version mismatch (%v)\n", err.Error())
+		os.Exit(1)
+	}
+
+	url := version.FlockerHubURL()
 	if params.FlockerHubURL != "" {
 		url = params.FlockerHubURL
 	}
@@ -410,5 +417,3 @@ func Execute() {
 	// parse and execute fli
 	cmd.Execute()
 }
-
-var _ Result = &CmdOutput{}

@@ -31,6 +31,7 @@ type (
 		FlockerHubURL string `yaml:"url,omitempty"`
 		AuthTokenFile string `yaml:"token,omitempty"`
 		Zpool         string `yaml:"zpool,omitempty"`
+		Version       string `yaml:"version,omitempty"`
 	}
 
 	// Config ...
