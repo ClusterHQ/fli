@@ -111,9 +111,29 @@ func NewID(s string) ID {
 	return ID(s)
 }
 
+// NewIDFromUUID creates a id from uuid.UUID.
+func NewIDFromUUID(id uuid.UUID) ID {
+	return NewID(id.String())
+}
+
+// ConvertIDs convert a slice of uuid into a slice of ID.
+func ConvertIDs(vsids []uuid.UUID) []ID {
+	volumesetIDs := make([]ID, len(vsids))
+	for i, volumesetID := range vsids {
+		volumesetIDs[i] = NewID(volumesetID.String())
+	}
+
+	return volumesetIDs
+}
+
 // String ...
 func (id ID) String() string {
 	return string(id)
+}
+
+// UUID ...
+func (id ID) UUID() uuid.UUID {
+	return uuid.Parse(id.String())
 }
 
 // MarshalJSON is a json helper.

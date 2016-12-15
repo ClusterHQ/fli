@@ -109,8 +109,7 @@ type (
 		Syncable
 
 		// SetVolumeSetSize updates a volume set's size
-		// Note: Didn't want to overload UpdateVolumeSet() because want this be explicitly called. In memory
-		//       version of volume set may not have the latest size.
+		// Note: Didn't want to overload UpdateVolumeSet() because want this be explicitly called.
 		SetVolumeSetSize(vsid volumeset.ID, size uint64) error
 
 		// UpdateSnapshot updates one snapshot
@@ -126,11 +125,18 @@ type (
 		// ImportBush creates a new bush
 		ImportBush(bush *bush.Bush) error
 
-		// GetBush retrieves a bush by its root snapshot id
-		GetBush(root snapshot.ID) (*bush.Bush, error)
+		// GetBush retrieves a bush by any snapshot id
+		GetBush(snapid snapshot.ID) (*bush.Bush, error)
 
 		// DeleteBush deletes a bush
 		DeleteBush(root snapshot.ID) error
+
+		// GetBlobIDs looks up a blob previously associated with a snapshot.  If there
+		// is no such association, a nil blob identifier is returned.
+		GetBlobIDs(snapids []snapshot.ID) (map[snapshot.ID]blob.ID, error)
+
+		// SetBlobIDAndSize sets a snapshot's blob id and disk space used by the blob
+		SetBlobIDAndSize(snapshot.ID, blob.ID, uint64) error
 	}
 
 	// Client supports volume, and it can be used a client like dpcli.
@@ -221,7 +227,7 @@ func VolumeSet(mds Syncable, n string, p string, a attrs.Attrs, d string, o, c s
 	return rv, nil
 }
 
-// GetVolumeSetBySnapID retrieves a volumeset by a snapshot id(assume snapshot id is globally unique)
+// GetVolumeSetBySnapID retrieves a volumeset id by a snapshot id(assume snapshot id is globally unique)
 func GetVolumeSetBySnapID(mds Store, sid snapshot.ID) (volumeset.ID, error) {
 	sn, err := GetSnapshot(mds, sid)
 	if err == nil {
@@ -319,89 +325,82 @@ func SnapshotExtend(
 	return &sn, mds.ExtendBranch(&sn)
 }
 
-// SetBlobIDAndSize associates a blob with a snapshot, and updates its size.
-func SetBlobIDAndSize(mds Store, id snapshot.ID, blobid blob.ID, size uint64) error {
-	sn, found := GetSnapshot(mds, id)
-	if found != nil {
-		return errors.Errorf("Set blob ID: Target snapshot %s not found", id.String())
-	}
-	sn.BlobID = blobid
-	sn.Size = size
-	_, err := mds.UpdateSnapshot(sn, nil)
-	return err
-}
-
-// GetBlobID looks up a blob previously associated with a snapshot.  If there
-// is no such association, a nil blob identifier is returned.
-func GetBlobID(mds Store, sid snapshot.ID) (blob.ID, error) {
-	sn, found := GetSnapshot(mds, sid)
-	// TODO: 'found' is actually returned as an error, it can be 'not found' or real MDS access errors
-	if found != nil {
-		return blob.NilID(), nil
-	}
-	return sn.BlobID, nil
-}
-
 // FindNonMissingSnapshot walks the given snapshot list backwards, returns the first snapshot that the meta data
 // store doesn't have, it can be used as the upload base.
 //
 // Assumptions:
 // 1. baseCandidateIDs[] is a list of snapshots from oldest to newest
 // 2. If a store has blob A, then it has all blobs older than A
-func FindNonMissingSnapshot(mds Store, targetID snapshot.ID, baseCandidateIDs []snapshot.ID) (*snapshot.ID, error) {
-	// If we have that snapshot's blob already, decline.
-	blobID, err := GetBlobID(mds, targetID)
+func FindNonMissingSnapshot(
+	mds Store,
+	targetID snapshot.ID,
+	baseCandidateIDs []snapshot.ID,
+) (*snapshot.ID, blob.ID, error) {
+	blobIDs, err := mds.GetBlobIDs(append(baseCandidateIDs, targetID))
 	if err != nil {
-		return nil, err
+		return nil, blob.NilID(), err
 	}
 
+	// Check if we already have that snapshot's blob; if we do, decline.
+	blobID, ok := blobIDs[targetID]
+	if !ok {
+		return nil, blob.NilID(), &ErrSnapshotNotFound{}
+	}
 	if !blobID.IsNilID() {
-		return nil, &ErrAlreadyHaveBlob{}
+		return nil, blob.NilID(), &ErrAlreadyHaveBlob{}
 	}
 
 	// Otherwise, find the newest base candidate for which we have a blob and select it.
 	for i := len(baseCandidateIDs) - 1; i > -1; i-- {
-		blobID, err = GetBlobID(mds, baseCandidateIDs[i])
-		if err != nil {
-			return nil, err
+		blobID, ok = blobIDs[baseCandidateIDs[i]]
+		if !ok {
+			return nil, blob.NilID(), &ErrSnapshotNotFound{}
 		}
 		if !blobID.IsNilID() {
-			return &baseCandidateIDs[i], nil
+			return &baseCandidateIDs[i], blobID, nil
 		}
 	}
 
 	// Nothing matched, start from empty.
-	return nil, nil
+	return nil, blob.NilID(), nil
 }
 
 // RequestBlobDiff asks the MDS to share a blob diff which will produce
 // the blob for a particular snapshot.  The MDS can select from a slice
 // of base blobs on which to base the diff.  It can also decline to share the
 // diff entirely.
-func RequestBlobDiff(mds Store, targetID snapshot.ID, baseCandidateIDs []snapshot.ID) (*snapshot.ID, error) {
-	// If we don't have that snapshot's blob, decline.
-	blobID, err := GetBlobID(mds, targetID)
+func RequestBlobDiff(
+	mds Store,
+	targetID snapshot.ID,
+	baseCandidateIDs []snapshot.ID,
+) (*snapshot.ID, blob.ID, blob.ID, error) {
+	blobIDs, err := mds.GetBlobIDs(append(baseCandidateIDs, targetID))
 	if err != nil {
-		return nil, err
+		return nil, blob.NilID(), blob.NilID(), err
 	}
 
-	if blobID.IsNilID() {
-		return nil, errors.Errorf("Base blob for snapshot %v not found.", targetID)
+	// If we don't have that snapshot's blob, decline.
+	targetBlobID, ok := blobIDs[targetID]
+	if !ok {
+		return nil, blob.NilID(), blob.NilID(), &ErrSnapshotNotFound{}
+	}
+	if targetBlobID.IsNilID() {
+		return nil, blob.NilID(), blob.NilID(), errors.Errorf("Base blob for snapshot %v not found.", targetID)
 	}
 
 	// Otherwise, find the newest base candidate for which we have a blob and select it.
 	for i := len(baseCandidateIDs) - 1; i > -1; i-- {
-		blobID, err = GetBlobID(mds, baseCandidateIDs[i])
-		if err != nil {
-			return nil, err
+		baseBlobID, ok := blobIDs[baseCandidateIDs[i]]
+		if !ok {
+			return nil, blob.NilID(), blob.NilID(), &ErrSnapshotNotFound{}
 		}
-		if !blobID.IsNilID() {
-			return &baseCandidateIDs[i], nil
+		if !baseBlobID.IsNilID() {
+			return &baseCandidateIDs[i], baseBlobID, targetBlobID, nil
 		}
 	}
 
 	// Nothing matched.  Offer a diff from the beginning of time.
-	return nil, nil
+	return nil, blob.NilID(), targetBlobID, nil
 }
 
 // GetVolumeSets ..
@@ -526,22 +525,6 @@ func GetVolumeSet(mds Syncable, id volumeset.ID) (*volumeset.VolumeSet, error) {
 	}
 }
 
-// GetBush follows the given snapshot id and returns the bush it belongs to
-func GetBush(mds Store, snapid snapshot.ID) (*bush.Bush, error) {
-	for id := snapid; ; {
-		snap, err := GetSnapshot(mds, id)
-		if err != nil {
-			return nil, err
-		}
-
-		if snap.ParentID == nil {
-			return mds.GetBush(snap.ID)
-		}
-
-		id = *snap.ParentID
-	}
-}
-
 // GetBushes all bushes of a volume set
 // Note: This is slow, since it is not used often, ok to do it this way for now instead of going to DB
 func GetBushes(mds Store, vsid volumeset.ID) ([]*bush.Bush, error) {
@@ -552,7 +535,7 @@ func GetBushes(mds Store, vsid volumeset.ID) ([]*bush.Bush, error) {
 
 	bushes := make(map[snapshot.ID]*bush.Bush)
 	for _, branch := range branches {
-		b, err := GetBush(mds, branch.Tip.ID)
+		b, err := mds.GetBush(branch.Tip.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -632,4 +615,13 @@ func GetVolume(mds Client, vid volume.ID) (*volume.Volume, error) {
 // GetVolumes calls MDS client's update volumes
 func GetVolumes(mds Client, vsid volumeset.ID) ([]*volume.Volume, error) {
 	return mds.GetVolumes(vsid)
+}
+
+// GetBlobID returns a snapshot's blob id
+func GetBlobID(mds Store, snapid snapshot.ID) (blob.ID, error) {
+	ids, err := mds.GetBlobIDs([]snapshot.ID{snapid})
+	if err != nil {
+		return blob.NilID(), err
+	}
+	return ids[snapid], err
 }

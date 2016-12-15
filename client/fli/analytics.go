@@ -1,17 +1,13 @@
 /*
- * Copyright 2016 ClusterHQ
+ * Copyright © 2014-2016 ClusterHQ Inc.  All rights reserved.
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Proprietary Rights Notice:   These files and their contents contain
+ * material that is the proprietary intellectual property of ClusterHQ Inc.
+ * or its licensors, and are protected under U.S. and international copyright
+ * and other intellectual property laws.  Except as expressly permitted by
+ * ClusterHQ Inc. in writing, no part of these files may be reproduced,
+ * duplicated, disclosed, redistributed or transmitted in any form or by any
+ * means known or unknown without the prior written permission of ClusterHQ Inc.
  */
 
 package fli

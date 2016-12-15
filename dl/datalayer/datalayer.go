@@ -237,7 +237,7 @@ func DownloadBlobDiff(
 	e executor.Executor,
 	hf dlhash.Factory,
 	dspuburl string,
-) (blob.ID, uint64, error) {
+) (blob.ID, uint64, uint64, error) {
 	var (
 		baseBlobID blob.ID
 		err        error
@@ -245,7 +245,7 @@ func DownloadBlobDiff(
 	if base.IsNilID() {
 		baseBlobID, err = s.EmptyBlobID(vsid)
 		if err != nil {
-			return blob.NilID(), 0, errors.New(err)
+			return blob.NilID(), 0, 0, errors.New(err)
 		}
 	} else {
 		baseBlobID = base
@@ -253,7 +253,7 @@ func DownloadBlobDiff(
 
 	// Can't do much if we don't have the blob of the parent(don't know where to apply the new records to)
 	if exist, _ := s.SnapshotExists(baseBlobID); exist == false {
-		return blob.NilID(), 0, nil
+		return blob.NilID(), 0, 0, nil
 	}
 
 	var (
@@ -262,13 +262,13 @@ func DownloadBlobDiff(
 	)
 	vid, mntPath, err = s.CreateVolume(vsid, baseBlobID, NoAutoMount)
 	if err != nil {
-		return blob.NilID(), 0, errors.New(err)
+		return blob.NilID(), 0, 0, errors.New(err)
 	}
 
 	dlURL := makeDownloadURL(dspuburl, token)
 	req, err := http.NewRequest("GET", dlURL, nil)
 	if err != nil {
-		return blob.NilID(), 0, errors.New(err)
+		return blob.NilID(), 0, 0, errors.New(err)
 	}
 
 	correlationID := protocols.GenerateCorrelationID()
@@ -276,23 +276,23 @@ func DownloadBlobDiff(
 	client := protocols.GetClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return blob.NilID(), 0, errors.New(err)
+		return blob.NilID(), 0, 0, errors.New(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return blob.NilID(), 0, errors.Errorf("HTTP request for download failed with status %d", resp.StatusCode)
+		return blob.NilID(), 0, 0, errors.Errorf("HTTP request for download failed with status %d", resp.StatusCode)
 	}
 
 	err = ReceiveDiff(resp.Body, mntPath, e)
 	if err != nil {
-		return blob.NilID(), 0, err
+		return blob.NilID(), 0, 0, err
 	}
 
 	// Take a snapshot
 	blobid, err := s.CreateSnapshot(vsid, ssid, vid)
 	if err != nil {
-		return blob.NilID(), 0, err
+		return blob.NilID(), 0, 0, err
 	}
 
 	// Clean up when finished, destroy the volume created for the upload.
@@ -303,12 +303,17 @@ func DownloadBlobDiff(
 		log.Printf("Delete volume error %v after download volume set %v volume %v.", err, vsid, vid)
 	}
 
-	space, err := s.GetVolumesetSpace(vsid)
+	snapSize, err := s.GetSnapshotSpace(blobid)
 	if err != nil {
-		return blob.NilID(), 0, err
+		return blob.NilID(), 0, 0, err
 	}
 
-	return blobid, space.Used, nil
+	vsSize, err := s.GetVolumesetSpace(vsid)
+	if err != nil {
+		return blob.NilID(), 0, 0, err
+	}
+
+	return blobid, snapSize.LogicalSize, vsSize.Used, nil
 }
 
 // ApplyDiff receives syscall records and apply to the given mount point.

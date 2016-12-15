@@ -393,6 +393,64 @@ func (store *Sqlite3Storage) GetSnapshotIDs(vsid volumeset.ID) ([]snapshot.ID, e
 	return ids, nil
 }
 
+// GetBlobIDs implements metastore.Store interface.
+func (store *Sqlite3Storage) GetBlobIDs(snapIDs []snapshot.ID) (map[snapshot.ID]blob.ID, error) {
+	if len(snapIDs) == 0 {
+		return nil, nil
+	}
+
+	stmt := "SELECT [id], [blob_id] FROM [snapshot] WHERE [id] IN ("
+	for idx, snapID := range snapIDs {
+		if idx != 0 {
+			stmt += ", "
+		}
+		stmt += "\"" + snapID.String() + "\""
+	}
+	stmt += ")"
+
+	tx, err := store.db.Begin()
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer tx.Rollback()
+
+	sel, err := tx.Prepare(stmt)
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer sel.Close()
+
+	rows, err := sel.Query()
+	if err != nil {
+		return nil, errors.Errorf("GetBlobdIDs() query failed: %v", err)
+	}
+	defer rows.Close()
+
+	blobIDs := make(map[snapshot.ID]blob.ID)
+	for rows.Next() {
+		var (
+			id        string
+			blobIDStr sql.NullString
+		)
+
+		err = rows.Scan(&id, &blobIDStr)
+		if err == sql.ErrNoRows {
+			return blobIDs, nil
+		}
+		if err != nil {
+			return nil, errors.Errorf("Failed to read from rows: %v\n", err)
+		}
+
+		if blobIDStr.Valid {
+			blobIDs[snapshot.NewID(id)] = blob.NewID(blobIDStr.String)
+		} else {
+			blobIDs[snapshot.NewID(id)] = blob.NilID()
+		}
+	}
+
+	return blobIDs, nil
+}
+
 // GetSnapshots returns a list of snapshots ordered by specifications in passed-in query.
 // Caller is responsible for actually filtering output based on query.
 func (store *Sqlite3Storage) GetSnapshots(q snapshot.Query) ([]*snapshot.Snapshot, error) {
@@ -2415,8 +2473,8 @@ VALUES (?, ?, ?)
 	return nil
 }
 
-// GetBush ...
-func (store *Sqlite3Storage) GetBush(root snapshot.ID) (*bush.Bush, error) {
+// GetBush implments metastore interface
+func (store *Sqlite3Storage) GetBush(snapid snapshot.ID) (*bush.Bush, error) {
 	tx, err := store.db.Begin()
 	if err != nil {
 		return nil, errors.New(err)
@@ -2424,11 +2482,40 @@ func (store *Sqlite3Storage) GetBush(root snapshot.ID) (*bush.Bush, error) {
 	defer tx.Rollback()
 
 	var (
-		vsid string
-		dsid int
+		vsid   string
+		dsid   int
+		parent sql.NullString
+		id     string
 	)
 
-	sel, err := tx.Prepare(`
+	selSnap, err := tx.Prepare(`
+SELECT [parent_id]
+FROM [snapshot]
+WHERE [id] = ?
+`)
+	if err != nil {
+		return nil, errors.New(err)
+	}
+	defer selSnap.Close()
+
+	for id = snapid.String(); ; {
+		err = selSnap.QueryRow(id).Scan(&parent)
+		if err == sql.ErrNoRows {
+			return nil, errors.Errorf("Snapshot does not exist: %s", id)
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if parent.Valid {
+			id = parent.String
+		} else {
+			break
+		}
+	}
+
+	selBush, err := tx.Prepare(`
 SELECT [volumeset_id], [dsid]
 FROM [bush]
 WHERE [id] = ?
@@ -2436,11 +2523,15 @@ WHERE [id] = ?
 	if err != nil {
 		return nil, errors.New(err)
 	}
-	defer sel.Close()
+	defer selBush.Close()
 
-	err = sel.QueryRow(root.String()).Scan(&vsid, &dsid)
+	err = selBush.QueryRow(id).Scan(&vsid, &dsid)
 	if err == sql.ErrNoRows {
-		return nil, errors.Errorf("Bush does not exist from root snapshot ID: %s", root.String())
+		return nil, errors.Errorf(
+			"Bush does not exist for snapshot: %s %s",
+			id,
+			snapid.String(),
+		)
 	}
 	if err != nil {
 		return nil, errors.New(err)
@@ -2449,7 +2540,7 @@ WHERE [id] = ?
 	return &bush.Bush{
 		VolSetID:  volumeset.NewID(vsid),
 		DataSrvID: dsid,
-		Root:      root,
+		Root:      snapshot.NewID(id),
 	}, nil
 }
 
@@ -2487,7 +2578,7 @@ WHERE [id] = ?
 	return err
 }
 
-// SetVolumeSetSize ...
+// SetVolumeSetSize implements metastore.Store interface
 func (store *Sqlite3Storage) SetVolumeSetSize(vsid volumeset.ID, size uint64) error {
 	tx, err := store.db.Begin()
 	if err != nil {
@@ -2522,6 +2613,50 @@ UPDATE [volumeset] SET [size] = ? WHERE [id] = ?
 	if rowsAffected == 0 {
 		return errors.Errorf(
 			"Failed to update volumeset(%v): no such volumeset", vsid)
+	}
+
+	return nil
+}
+
+// SetBlobIDAndSize implements metastore.Store interface
+func (store *Sqlite3Storage) SetBlobIDAndSize(
+	snapid snapshot.ID,
+	blobid blob.ID,
+	size uint64,
+) error {
+	tx, err := store.db.Begin()
+	if err != nil {
+		return errors.New(err)
+	}
+	defer func() {
+		if err == nil {
+			tx.Commit()
+		} else {
+			tx.Rollback()
+		}
+	}()
+
+	upd, err := tx.Prepare(`
+UPDATE [snapshot] SET [size] = ?, [blob_id] = ? WHERE [id] = ?
+`)
+	if err != nil {
+		return errors.New(err)
+	}
+	defer upd.Close()
+
+	result, err := upd.Exec(size, blobid.String(), snapid.String())
+	if err != nil {
+		return errors.New(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return errors.New(err)
+	}
+
+	if rowsAffected == 0 {
+		return errors.Errorf(
+			"Failed to update snapshot's blob and size; (%v): no such snapshot", snapid)
 	}
 
 	return nil

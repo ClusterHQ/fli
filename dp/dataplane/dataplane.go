@@ -44,7 +44,10 @@ type (
 		) error
 	}
 
-	// BlobDownloader receives a blob from the sender identified by the token, blob received is applied to the base.
+	// BlobDownloader receives a blob from the sender identified by the token, blob received is applied to
+	// the base.
+	// Returns the blob id of the newly received blob, size of the newly received blob and updated volume set
+	// total disk space usage.
 	BlobDownloader interface {
 		DownloadBlobDiff(
 			vsid volumeset.ID,
@@ -52,7 +55,7 @@ type (
 			base blob.ID,
 			token string,
 			dspuburl string,
-		) (blob.ID, uint64, error)
+		) (blob.ID, uint64, uint64, error)
 	}
 )
 
@@ -310,8 +313,15 @@ func DeleteVolumeSet(mds metastore.Client, s datalayer.Storage, vsid volumeset.I
 }
 
 // UploadBlobDiff ...
-func UploadBlobDiff(mds metastore.Store, sender BlobUploader, vsid volumeset.ID, base *snapshot.ID, target snapshot.ID,
-	token string, dspuburl string) error {
+func UploadBlobDiff(
+	mds metastore.Store,
+	sender BlobUploader,
+	vsid volumeset.ID,
+	base *snapshot.ID,
+	target snapshot.ID,
+	token string,
+	dspuburl string,
+) error {
 	var baseBlobID blob.ID
 	if base != nil {
 		var err error
@@ -355,7 +365,7 @@ func DownloadBlobDiff(
 		baseBlobID = snap.BlobID
 	}
 
-	targetBlobID, size, err := receiver.DownloadBlobDiff(
+	targetBlobID, snapSize, vsSize, err := receiver.DownloadBlobDiff(
 		vsid,
 		target,
 		baseBlobID,
@@ -366,12 +376,12 @@ func DownloadBlobDiff(
 		return err
 	}
 
-	err = metastore.SetBlobIDAndSize(mds, target, targetBlobID, size)
+	err = mds.SetBlobIDAndSize(target, targetBlobID, snapSize)
 	if err != nil {
 		return err
 	}
 
-	return mds.SetVolumeSetSize(vsid, size)
+	return mds.SetVolumeSetSize(vsid, vsSize)
 }
 
 // DeleteBranch deletes a branch identified by a branch's tip snapshot ID.

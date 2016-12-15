@@ -1,7 +1,7 @@
 package version
 
 const (
-	version         = "0.7.0"
+	version         = "0.8.0"
 	flockerHubURL   = "https://data.flockerhub.clusterhq.com"
 	zfsReferenceURL = "https://clusterhq.com/zfs-tools/"
 )

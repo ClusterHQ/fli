@@ -1,4 +1,10 @@
-# 0.7.0 (2016-12-06)
+## 0.8.0 (2016-12-13)
+
+### Features
+
+### Bug Fixes
+
+## 0.7.0 (2016-12-06)
 
 ### Features
 * Performance improvement when cloning snapshots. Added upgrade code to migrate from versions 0.6.0 or lower.

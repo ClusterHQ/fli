@@ -137,7 +137,7 @@ func (b blobDiff) DownloadBlobDiff(
 	base blob.ID,
 	token string,
 	dspuburl string,
-) (blob.ID, uint64, error) {
+) (blob.ID, uint64, uint64, error) {
 	return datalayer.DownloadBlobDiff(
 		b.store,
 		b.ed,
