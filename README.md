@@ -29,7 +29,7 @@ Using Fli requires a few dependencies so make sure you have these on your system
 
 ## Build Fli from source
 
-Fli can also be built from source. Instruction to build from source can be found [here](https://fli-docs.clusterhq.com/en/latest/Contributing.html#how-to-build-from-source).
+Fli can also be built from source. Instructions to build from source can be found [here](https://fli-docs.clusterhq.com/en/latest/Contributing.html#how-to-build-from-source).
 
 # Why use Fli?
 
